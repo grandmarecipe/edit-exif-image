@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXIF Editor - Edit Image Metadata</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📸 EXIF Editor</h1>
+            <p>Edit image metadata including description, keywords, and geotags</p>
+        </header>
+
+        <div class="upload-section">
+            <div class="input-group">
+                <label for="imageUrl">Image URL:</label>
+                <input type="url" id="imageUrl" placeholder="https://example.com/image.jpg">
+                <button id="loadUrlBtn">Load from URL</button>
+            </div>
+            <div class="divider">OR</div>
+            <div class="input-group">
+                <label for="imageFile">Upload Image:</label>
+                <input type="file" id="imageFile" accept="image/jpeg,image/jpg,image/png">
+            </div>
+        </div>
+
+        <div id="imagePreview" class="image-preview hidden">
+            <img id="previewImg" alt="Preview">
+        </div>
+
+        <div id="exifEditor" class="exif-editor hidden">
+            <h2>Edit EXIF Data</h2>
+            
+            <div class="form-section">
+                <h3>Basic Information</h3>
+                <div class="form-group">
+                    <label for="description">Description:</label>
+                    <textarea id="description" rows="3" placeholder="Enter image description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="keywords">Keywords (comma-separated):</label>
+                    <input type="text" id="keywords" placeholder="keyword1, keyword2, keyword3">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Geotags (GPS Location)</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="latitude">Latitude:</label>
+                        <input type="number" id="latitude" step="0.000001" placeholder="e.g., 40.7128">
+                    </div>
+                    <div class="form-group">
+                        <label for="longitude">Longitude:</label>
+                        <input type="number" id="longitude" step="0.000001" placeholder="e.g., -74.0060">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="altitude">Altitude (meters):</label>
+                    <input type="number" id="altitude" step="0.1" placeholder="Optional">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Camera Information</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="make">Camera Make:</label>
+                        <input type="text" id="make" placeholder="e.g., Canon">
+                    </div>
+                    <div class="form-group">
+                        <label for="model">Camera Model:</label>
+                        <input type="text" id="model" placeholder="e.g., EOS 5D Mark IV">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Image Information</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="datetime">Date/Time:</label>
+                        <input type="datetime-local" id="datetime">
+                    </div>
+                    <div class="form-group">
+                        <label for="copyright">Copyright:</label>
+                        <input type="text" id="copyright" placeholder="Optional">
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button id="saveBtn" class="btn-primary">Save EXIF Data</button>
+                <button id="resetBtn" class="btn-secondary">Reset</button>
+            </div>
+        </div>
+
+        <div id="currentExif" class="current-exif hidden">
+            <h3>Current EXIF Data</h3>
+            <pre id="exifData"></pre>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.0/piexif.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

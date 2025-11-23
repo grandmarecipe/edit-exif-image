@@ -1,0 +1,22 @@
+{
+  "name": "exif-editor-webapp",
+  "version": "1.0.0",
+  "description": "Web app for editing EXIF data in images including description, keywords, and geotags",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve ."
+  },
+  "keywords": [
+    "exif",
+    "image",
+    "metadata",
+    "editor",
+    "geotags"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
+
