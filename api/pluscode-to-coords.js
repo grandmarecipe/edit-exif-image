@@ -98,41 +98,32 @@ module.exports = async function handler(req, res) {
                         const result = mapsData.results[0];
                         const location = result.geometry.location;
                         
-                        // Try to get more precise coordinates from the Plus Code in the response
-                        // Google Maps API sometimes includes the Plus Code object with more precise location
+                        // Default to Geocoding API coordinates
                         let finalLat = location.lat;
                         let finalLng = location.lng;
+                        let source = 'Google Maps Geocoding API';
                         
-                        // Check if the result has a plus_code object with a compound_code or global_code
-                        if (result.plus_code) {
-                            // If we have a place_id, we can use Place Details API for more precise coordinates
-                            // But for now, use the location_type to determine precision
-                            const locationType = result.geometry.location_type;
-                            
-                            // If location_type is 'ROOFTOP' or 'RANGE_INTERPOLATED', coordinates are more precise
-                            // 'GEOMETRIC_CENTER' or 'APPROXIMATE' means it's the center of the area
-                            if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {
-                                // These are already precise
-                                finalLat = location.lat;
-                                finalLng = location.lng;
-                            }
-                        }
-                        
-                        // Use Place Details API to get more precise coordinates if we have a place_id
-                        // This gives us the exact coordinates that Google Maps shows
+                        // Use Place Details API to get EXACT coordinates that match Google Maps URL
+                        // This is crucial because Geocoding API returns center of Plus Code area,
+                        // but Place Details API returns the exact coordinates shown in Google Maps
                         if (result.place_id) {
                             try {
-                                const placeDetailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${result.place_id}&fields=geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                                const placeDetailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${result.place_id}&fields=geometry,formatted_address&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                                console.log(`Fetching Place Details for place_id: ${result.place_id}`);
+                                
                                 const placeResponse = await fetch(placeDetailsUrl);
                                 const placeData = await placeResponse.json();
                                 
                                 if (placeData.status === 'OK' && placeData.result && placeData.result.geometry && placeData.result.geometry.location) {
                                     finalLat = placeData.result.geometry.location.lat;
                                     finalLng = placeData.result.geometry.location.lng;
-                                    console.log(`Using Place Details API coordinates: ${finalLat}, ${finalLng}`);
+                                    source = 'Google Maps Place Details API (exact coordinates)';
+                                    console.log(`Using Place Details API exact coordinates: ${finalLat}, ${finalLng}`);
+                                } else {
+                                    console.warn('Place Details API returned:', placeData.status, placeData.error_message || '');
                                 }
                             } catch (placeError) {
-                                console.warn('Place Details API failed, using Geocoding coordinates:', placeError);
+                                console.warn('Place Details API failed, using Geocoding coordinates:', placeError.message);
                             }
                         }
                         
@@ -142,7 +133,7 @@ module.exports = async function handler(req, res) {
                             longitude: finalLng,
                             formatted: `${finalLat}, ${finalLng}`,
                             address: result.formatted_address,
-                            source: 'Google Maps Geocoding API',
+                            source: source,
                             queryUsed: query,
                             locationType: result.geometry.location_type,
                             placeId: result.place_id || null
