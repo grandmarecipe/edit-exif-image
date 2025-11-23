@@ -64,36 +64,48 @@ module.exports = async function handler(req, res) {
         }
 
         try {
-            const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-            const mapsResponse = await fetch(mapsUrl);
-            const mapsData = await mapsResponse.json();
-            
-            if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
-                const location = mapsData.results[0].geometry.location;
-                return res.status(200).json({
-                    plusCode: cleanCode,
-                    latitude: location.lat,
-                    longitude: location.lng,
-                    formatted: `${location.lat}, ${location.lng}`,
-                    address: mapsData.results[0].formatted_address,
-                    source: 'Google Maps Geocoding API'
-                });
-            } else if (mapsData.status === 'ZERO_RESULTS') {
-                return res.status(400).json({ 
-                    error: 'Plus Code not found. The Plus Code may be invalid.',
-                    received: plusCode,
-                    extracted: cleanCode,
-                    googleStatus: mapsData.status
-                });
-            } else {
-                return res.status(400).json({ 
-                    error: `Google Maps API error: ${mapsData.status}`,
-                    received: plusCode,
-                    extracted: cleanCode,
-                    googleStatus: mapsData.status,
-                    errorMessage: mapsData.error_message || 'Unknown error'
-                });
+            // For short Plus Codes, try with location context from the original input
+            // Extract location hint from original input (e.g., "Agadir, Maroc")
+            let locationHint = '';
+            const locationMatch = plusCode.match(/[A-Z0-9]+\+[A-Z0-9]+\s+(.+)/i);
+            if (locationMatch) {
+                locationHint = locationMatch[1].trim();
             }
+            
+            // Try multiple formats to help Google Maps API decode the Plus Code
+            const queriesToTry = [
+                cleanCode, // Just the code
+                locationHint ? `${cleanCode} ${locationHint}` : null, // Code with location hint
+                locationHint ? `${locationHint} ${cleanCode}` : null, // Location hint with code
+            ].filter(q => q !== null);
+            
+            for (const query of queriesToTry) {
+                const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                const mapsResponse = await fetch(mapsUrl);
+                const mapsData = await mapsResponse.json();
+                
+                if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
+                    const location = mapsData.results[0].geometry.location;
+                    return res.status(200).json({
+                        plusCode: cleanCode,
+                        latitude: location.lat,
+                        longitude: location.lng,
+                        formatted: `${location.lat}, ${location.lng}`,
+                        address: mapsData.results[0].formatted_address,
+                        source: 'Google Maps Geocoding API',
+                        queryUsed: query
+                    });
+                }
+            }
+            
+            // If all queries failed, return error
+            return res.status(400).json({ 
+                error: 'Plus Code not found. The Plus Code may be invalid or the location context is needed.',
+                received: plusCode,
+                extracted: cleanCode,
+                suggestion: 'Try including the location with the Plus Code (e.g., "CC2C+8X Agadir, Morocco") or use the full Plus Code format.'
+            });
+            
         } catch (mapsError) {
             console.error('Google Maps API error:', mapsError);
             return res.status(500).json({ 
