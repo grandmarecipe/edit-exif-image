@@ -112,10 +112,10 @@ module.exports = async function handler(req, res) {
         }
         
         // FIRST: Try to use Google Plus Codes API for accurate coordinates
-        const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
-        
         try {
+            const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
             const response = await fetch(geocodeUrl);
+            
             if (response.ok) {
                 const data = await response.json();
                 if (data.plus_code && data.plus_code.geometry && data.plus_code.geometry.location) {
@@ -130,14 +130,72 @@ module.exports = async function handler(req, res) {
                 }
             }
         } catch (apiError) {
-            console.warn('Plus Codes API failed, trying known codes:', apiError);
+            console.warn('Plus Codes API failed, trying Google Maps API:', apiError);
         }
         
-        // SECOND: Check for known Plus Codes with exact coordinates (fallback)
+        // SECOND: Try Google Maps Geocoding API (works for any Plus Code)
+        if (process.env.GOOGLE_MAPS_API_KEY) {
+            try {
+                const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                const mapsResponse = await fetch(mapsUrl);
+                const mapsData = await mapsResponse.json();
+                
+                if (mapsData.results && mapsData.results.length > 0) {
+                    const location = mapsData.results[0].geometry.location;
+                    return res.status(200).json({
+                        plusCode: cleanCode,
+                        latitude: location.lat,
+                        longitude: location.lng,
+                        formatted: `${location.lat}, ${location.lng}`,
+                        address: mapsData.results[0].formatted_address,
+                        source: 'Google Maps Geocoding API'
+                    });
+                }
+            } catch (mapsError) {
+                console.warn('Google Maps API failed:', mapsError);
+            }
+        }
+        
+        // THIRD: Try fetching from plus.codes website and parsing coordinates
+        try {
+            const plusCodesPageUrl = `https://plus.codes/${cleanCode}`;
+            const pageResponse = await fetch(plusCodesPageUrl);
+            
+            if (pageResponse.ok) {
+                const pageText = await pageResponse.text();
+                // Look for coordinate patterns in the page HTML
+                const coordPatterns = [
+                    /"lat":\s*([\d.]+),\s*"lng":\s*([\d.-]+)/,
+                    /latitude["\s:]+([\d.]+).*longitude["\s:]+([\d.-]+)/i,
+                    /coordinates["\s:]+([\d.]+),\s*([\d.-]+)/i
+                ];
+                
+                for (const pattern of coordPatterns) {
+                    const match = pageText.match(pattern);
+                    if (match) {
+                        const lat = parseFloat(match[1]);
+                        const lng = parseFloat(match[2]);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            return res.status(200).json({
+                                plusCode: cleanCode,
+                                latitude: lat,
+                                longitude: lng,
+                                formatted: `${lat}, ${lng}`,
+                                source: 'plus.codes website parsing'
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (pageError) {
+            console.warn('Plus Codes page fetch failed:', pageError);
+        }
+        
+        // FOURTH: Check for known Plus Codes with exact coordinates (fallback for specific codes)
         const knownPlusCodes = {
             'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
-            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Exact from plus.codes
-            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Full code
+            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
+            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
             // Add more known codes as needed
         };
         
@@ -153,70 +211,24 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // Alternative: Use OpenLocationCode library approach
-        // For CC2C+8X format, we can decode it manually
-        // This is a simplified decoder - for production, use a proper library
-        
-        // Try using Google Maps Geocoding API as fallback
-        const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(plusCode)}&key=${process.env.GOOGLE_MAPS_API_KEY || ''}`;
-        
-        if (process.env.GOOGLE_MAPS_API_KEY) {
-            try {
-                const mapsResponse = await fetch(mapsUrl);
-                const mapsData = await mapsResponse.json();
-                
-                if (mapsData.results && mapsData.results.length > 0) {
-                    const location = mapsData.results[0].geometry.location;
-                    return res.status(200).json({
-                        plusCode: cleanCode,
-                        latitude: location.lat,
-                        longitude: location.lng,
-                        formatted: `${location.lat}, ${location.lng}`,
-                        address: mapsData.results[0].formatted_address
-                    });
-                }
-            } catch (mapsError) {
-                console.warn('Google Maps API failed:', mapsError);
-            }
-        }
-
-        // Try manual decoder
+        // FIFTH: Try manual decoder as last resort
         const decoded = decodePlusCode(cleanCode);
         if (decoded) {
             return res.status(200).json({
                 plusCode: cleanCode,
                 latitude: decoded.latitude,
                 longitude: decoded.longitude,
-                formatted: `${decoded.latitude}, ${decoded.longitude}`
+                formatted: `${decoded.latitude}, ${decoded.longitude}`,
+                source: 'manual decoder'
             });
         }
-        
-        // Fallback: Use Google Geocoding API (if API key is available)
-        if (process.env.GOOGLE_MAPS_API_KEY) {
-            const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(plusCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-            try {
-                const geocodeResponse = await fetch(geocodeUrl);
-                const geocodeData = await geocodeResponse.json();
-                
-                if (geocodeData.results && geocodeData.results.length > 0) {
-                    const location = geocodeData.results[0].geometry.location;
-                    return res.status(200).json({
-                        plusCode: cleanCode,
-                        latitude: location.lat,
-                        longitude: location.lng,
-                        formatted: `${location.lat}, ${location.lng}`,
-                        address: geocodeData.results[0].formatted_address
-                    });
-                }
-            } catch (apiError) {
-                console.warn('Google Geocoding API failed:', apiError);
-            }
-        }
 
+        // If all methods failed, return error with helpful message
         return res.status(400).json({ 
-            error: 'Could not decode Plus Code. Please provide a valid Plus Code format (e.g., CC2C+8X).',
+            error: 'Could not decode Plus Code. The Plus Code may be invalid or the decoding services are unavailable.',
             received: plusCode,
-            extracted: cleanCode
+            extracted: cleanCode,
+            suggestion: 'Please verify the Plus Code is correct, or add a GOOGLE_MAPS_API_KEY to your Vercel environment variables for better support.'
         });
 
     } catch (error) {
