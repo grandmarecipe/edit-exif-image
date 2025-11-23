@@ -1,5 +1,54 @@
 let currentImageData = null;
 let originalExifData = null;
+let originalImageFormat = null;
+
+// Show notification message
+function showNotification(message, type = 'info') {
+    // Remove existing notification if any
+    const existing = document.getElementById('notification');
+    if (existing) {
+        existing.remove();
+    }
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.id = 'notification';
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 10000;
+        font-weight: 500;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    // Add animation
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    `;
+    if (!document.getElementById('notification-style')) {
+        style.id = 'notification-style';
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        notification.style.animation = 'slideIn 0.3s ease reverse';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
 
 // Load image from URL
 document.getElementById('loadUrlBtn').addEventListener('click', async () => {
@@ -70,12 +119,67 @@ function loadImageFromFile(file) {
 // Load image from blob
 function loadImageFromBlob(blob, source) {
     const reader = new FileReader();
-    reader.onload = (e) => {
-        currentImageData = e.target.result;
+    reader.onload = async (e) => {
+        const dataUrl = e.target.result;
+        // Detect image format
+        const mimeType = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+        originalImageFormat = mimeType;
+        
+        // Convert to JPEG if not already JPEG
+        if (mimeType !== 'image/jpeg') {
+            try {
+                // Show conversion message
+                const formatName = mimeType.split('/')[1].toUpperCase();
+                showNotification(`Converting ${formatName} to JPEG for EXIF editing...`, 'info');
+                
+                currentImageData = await convertToJPEG(dataUrl);
+                showNotification(`Successfully converted ${formatName} to JPEG!`, 'success');
+            } catch (error) {
+                console.error('Conversion error:', error);
+                showNotification('Failed to convert image. Using original format.', 'error');
+                currentImageData = dataUrl; // Fallback to original
+            }
+        } else {
+            currentImageData = dataUrl;
+        }
+        
         displayImage(currentImageData);
         readExifData(currentImageData);
     };
     reader.readAsDataURL(blob);
+}
+
+// Convert any image format to JPEG using canvas
+function convertToJPEG(imageDataUrl, quality = 0.95) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = function() {
+            try {
+                // Create canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // Draw image to canvas
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                // Convert to JPEG data URL
+                const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+                resolve(jpegDataUrl);
+            } catch (error) {
+                reject(new Error('Failed to convert image to JPEG: ' + error.message));
+            }
+        };
+        
+        img.onerror = function() {
+            reject(new Error('Failed to load image for conversion'));
+        };
+        
+        img.src = imageDataUrl;
+    });
 }
 
 // Display image preview
@@ -285,9 +389,10 @@ function writeExifData(imageData, newExif) {
             binaryString = imageData;
         }
 
-        // Check if image is JPEG (piexif only works with JPEG)
+        // Ensure image is JPEG (should already be converted, but double-check)
         if (!binaryString.startsWith('\xff\xd8')) {
-            throw new Error('Only JPEG images are supported for EXIF editing');
+            // If not JPEG, try to convert it
+            throw new Error('Image must be in JPEG format. Please ensure the image was properly loaded.');
         }
 
         // Load existing EXIF if available
