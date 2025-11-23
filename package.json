@@ -7,6 +7,9 @@
     "start": "npx serve .",
     "dev": "npx serve ."
   },
+  "engines": {
+    "node": "18.x"
+  },
   "keywords": [
     "exif",
     "image",
@@ -17,6 +20,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {},
-  "dependencies": {}
+  "dependencies": {
+    "piexifjs": "^1.0.0"
+  }
 }
 
