@@ -111,36 +111,6 @@ module.exports = async function handler(req, res) {
             });
         }
         
-        // Check for known Plus Codes with exact coordinates
-        const knownPlusCodes = {
-            'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
-            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Exact from plus.codes
-            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Full code
-            // Add more known codes as needed
-        };
-        
-        if (knownPlusCodes[cleanCode]) {
-            const coords = knownPlusCodes[cleanCode];
-            return res.status(200).json({
-                plusCode: cleanCode,
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                formatted: `${coords.latitude}, ${coords.longitude}`,
-                location: coords.location,
-                source: 'known coordinates'
-            });
-        }
-        
-        // If we have the full code (8+ characters before +), try to decode it
-        // For short codes, we need the reference location which makes it harder
-        // Return error asking for full code or use API
-        return res.status(400).json({ 
-            error: 'Could not decode Plus Code accurately. Please provide the full Plus Code (8+ characters) or use a Plus Code decoder API.',
-            received: plusCode,
-            extracted: cleanCode,
-            suggestion: 'For accurate coordinates, use the full Plus Code format or add a Google Maps API key to your Vercel environment variables.'
-        });
-
         // FIRST: Try to use Google Plus Codes API for accurate coordinates
         const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
         
@@ -161,6 +131,26 @@ module.exports = async function handler(req, res) {
             }
         } catch (apiError) {
             console.warn('Plus Codes API failed, trying known codes:', apiError);
+        }
+        
+        // SECOND: Check for known Plus Codes with exact coordinates (fallback)
+        const knownPlusCodes = {
+            'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
+            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Exact from plus.codes
+            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Full code
+            // Add more known codes as needed
+        };
+        
+        if (knownPlusCodes[cleanCode]) {
+            const coords = knownPlusCodes[cleanCode];
+            return res.status(200).json({
+                plusCode: cleanCode,
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                formatted: `${coords.latitude}, ${coords.longitude}`,
+                location: coords.location,
+                source: 'known coordinates'
+            });
         }
 
         // Alternative: Use OpenLocationCode library approach
