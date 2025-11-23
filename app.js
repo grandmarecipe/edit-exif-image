@@ -436,59 +436,58 @@ function writeExifData(imageData, newExif) {
             throw new Error('Image must be in JPEG format. Please ensure the image was properly loaded.');
         }
 
-        // Start with a fresh EXIF object to avoid issues with existing corrupted data
-        // Only load existing EXIF if we need to preserve something, otherwise start fresh
+        // Start with a fresh EXIF object - match the working Node.js script approach
         let exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         
-        // Only merge new EXIF data - don't try to preserve old data that might be corrupted
+        // Directly assign values like in the working script - don't copy through loops
         if (newExif['0th']) {
-            exifObj['0th'] = {};
-            // Copy only the fields we're setting
-            for (const key in newExif['0th']) {
-                const value = newExif['0th'][key];
-                if (value !== undefined && value !== null) {
-                    exifObj['0th'][key] = typeof value === 'string' ? value : String(value);
-                }
+            // Direct assignment for each field
+            if (newExif['0th'][piexif.ImageIFD.ImageDescription]) {
+                exifObj['0th'][piexif.ImageIFD.ImageDescription] = String(newExif['0th'][piexif.ImageIFD.ImageDescription]);
+            }
+            if (newExif['0th'][piexif.ImageIFD.Make]) {
+                exifObj['0th'][piexif.ImageIFD.Make] = String(newExif['0th'][piexif.ImageIFD.Make]);
+            }
+            if (newExif['0th'][piexif.ImageIFD.Model]) {
+                exifObj['0th'][piexif.ImageIFD.Model] = String(newExif['0th'][piexif.ImageIFD.Model]);
+            }
+            if (newExif['0th'][piexif.ImageIFD.Copyright]) {
+                exifObj['0th'][piexif.ImageIFD.Copyright] = String(newExif['0th'][piexif.ImageIFD.Copyright]);
+            }
+            if (newExif['0th'][piexif.ImageIFD.DateTime]) {
+                exifObj['0th'][piexif.ImageIFD.DateTime] = String(newExif['0th'][piexif.ImageIFD.DateTime]);
             }
         }
         
         if (newExif['Exif']) {
-            exifObj['Exif'] = {};
-            for (const key in newExif['Exif']) {
-                const value = newExif['Exif'][key];
-                if (value !== undefined && value !== null) {
-                    exifObj['Exif'][key] = typeof value === 'string' ? value : String(value);
-                }
+            if (newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]) {
+                exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = String(newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]);
             }
         }
         
         if (newExif['GPS']) {
-            exifObj['GPS'] = {};
             const gpsData = newExif['GPS'];
-            // Only copy GPS data if it's complete and valid
-            if (gpsData[piexif.GPSIFD.GPSLatitude] && gpsData[piexif.GPSIFD.GPSLongitude]) {
-                // Copy GPS fields one by one to ensure correct types
-                if (Array.isArray(gpsData[piexif.GPSIFD.GPSLatitude])) {
-                    exifObj['GPS'][piexif.GPSIFD.GPSLatitude] = gpsData[piexif.GPSIFD.GPSLatitude];
-                }
-                if (typeof gpsData[piexif.GPSIFD.GPSLatitudeRef] === 'string') {
-                    exifObj['GPS'][piexif.GPSIFD.GPSLatitudeRef] = gpsData[piexif.GPSIFD.GPSLatitudeRef];
-                }
-                if (Array.isArray(gpsData[piexif.GPSIFD.GPSLongitude])) {
-                    exifObj['GPS'][piexif.GPSIFD.GPSLongitude] = gpsData[piexif.GPSIFD.GPSLongitude];
-                }
-                if (typeof gpsData[piexif.GPSIFD.GPSLongitudeRef] === 'string') {
-                    exifObj['GPS'][piexif.GPSIFD.GPSLongitudeRef] = gpsData[piexif.GPSIFD.GPSLongitudeRef];
-                }
-                if (Array.isArray(gpsData[piexif.GPSIFD.GPSAltitude])) {
-                    exifObj['GPS'][piexif.GPSIFD.GPSAltitude] = [
-                        Math.round(gpsData[piexif.GPSIFD.GPSAltitude][0]),
-                        Math.round(gpsData[piexif.GPSIFD.GPSAltitude][1])
-                    ];
-                }
-                if (gpsData[piexif.GPSIFD.GPSAltitudeRef] === 0 || gpsData[piexif.GPSIFD.GPSAltitudeRef] === 1) {
-                    exifObj['GPS'][piexif.GPSIFD.GPSAltitudeRef] = gpsData[piexif.GPSIFD.GPSAltitudeRef];
-                }
+            // Direct assignment like in working script
+            if (gpsData[piexif.GPSIFD.GPSLatitude] && Array.isArray(gpsData[piexif.GPSIFD.GPSLatitude])) {
+                exifObj['GPS'][piexif.GPSIFD.GPSLatitude] = gpsData[piexif.GPSIFD.GPSLatitude];
+            }
+            if (gpsData[piexif.GPSIFD.GPSLatitudeRef]) {
+                exifObj['GPS'][piexif.GPSIFD.GPSLatitudeRef] = String(gpsData[piexif.GPSIFD.GPSLatitudeRef]);
+            }
+            if (gpsData[piexif.GPSIFD.GPSLongitude] && Array.isArray(gpsData[piexif.GPSIFD.GPSLongitude])) {
+                exifObj['GPS'][piexif.GPSIFD.GPSLongitude] = gpsData[piexif.GPSIFD.GPSLongitude];
+            }
+            if (gpsData[piexif.GPSIFD.GPSLongitudeRef]) {
+                exifObj['GPS'][piexif.GPSIFD.GPSLongitudeRef] = String(gpsData[piexif.GPSIFD.GPSLongitudeRef]);
+            }
+            if (gpsData[piexif.GPSIFD.GPSAltitude] && Array.isArray(gpsData[piexif.GPSIFD.GPSAltitude])) {
+                exifObj['GPS'][piexif.GPSIFD.GPSAltitude] = [
+                    Math.round(gpsData[piexif.GPSIFD.GPSAltitude][0]),
+                    Math.round(gpsData[piexif.GPSIFD.GPSAltitude][1])
+                ];
+            }
+            if (gpsData[piexif.GPSIFD.GPSAltitudeRef] === 0 || gpsData[piexif.GPSIFD.GPSAltitudeRef] === 1) {
+                exifObj['GPS'][piexif.GPSIFD.GPSAltitudeRef] = gpsData[piexif.GPSIFD.GPSAltitudeRef];
             }
         }
 
