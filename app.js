@@ -159,16 +159,18 @@ function convertDMSToDD(dms, ref) {
     return dd;
 }
 
-// Convert Decimal Degrees to DMS
+// Convert Decimal Degrees to DMS (piexif format: [[deg, 1], [min, 1], [sec*100, 100]])
 function convertDDToDMS(dd, isLat) {
     const abs = Math.abs(dd);
     const deg = Math.floor(abs);
-    const min = Math.floor((abs - deg) * 60);
-    const sec = ((abs - deg - min/60) * 3600).toFixed(2);
+    const minFloat = (abs - deg) * 60;
+    const min = Math.floor(minFloat);
+    const sec = (minFloat - min) * 60;
     const ref = isLat 
         ? (dd >= 0 ? "N" : "S")
         : (dd >= 0 ? "E" : "W");
-    return [[deg, min, sec], ref];
+    // piexif expects rational numbers: [[deg, 1], [min, 1], [sec*100, 100]]
+    return [[[deg, 1], [min, 1], [Math.round(sec * 100), 100]], ref];
 }
 
 // Save EXIF data
@@ -222,17 +224,17 @@ function collectFormData() {
     const lon = parseFloat(document.getElementById('longitude').value);
     if (!isNaN(lat) && !isNaN(lon)) {
         exif['GPS'] = exif['GPS'] || {};
-        const [latDMS, latRef] = convertDDToDMS(lat, true);
-        const [lonDMS, lonRef] = convertDDToDMS(lon, false);
+        const latResult = convertDDToDMS(lat, true);
+        const lonResult = convertDDToDMS(lon, false);
         
-        exif['GPS'][piexif.GPSIFD.GPSLatitude] = latDMS;
-        exif['GPS'][piexif.GPSIFD.GPSLatitudeRef] = latRef;
-        exif['GPS'][piexif.GPSIFD.GPSLongitude] = lonDMS;
-        exif['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lonRef;
+        exif['GPS'][piexif.GPSIFD.GPSLatitude] = latResult[0];
+        exif['GPS'][piexif.GPSIFD.GPSLatitudeRef] = latResult[1];
+        exif['GPS'][piexif.GPSIFD.GPSLongitude] = lonResult[0];
+        exif['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lonResult[1];
         
         const altitude = parseFloat(document.getElementById('altitude').value);
         if (!isNaN(altitude)) {
-            exif['GPS'][piexif.GPSIFD.GPSAltitude] = [Math.abs(altitude), 1];
+            exif['GPS'][piexif.GPSIFD.GPSAltitude] = [Math.round(Math.abs(altitude) * 100), 100];
             exif['GPS'][piexif.GPSIFD.GPSAltitudeRef] = altitude >= 0 ? 0 : 1;
         }
     }
@@ -273,10 +275,25 @@ function collectFormData() {
 // Write EXIF data to image
 function writeExifData(imageData, newExif) {
     try {
+        // Convert data URL to binary string for piexif
+        let binaryString;
+        if (imageData.startsWith('data:')) {
+            // Extract base64 part from data URL
+            const base64 = imageData.split(',')[1];
+            binaryString = atob(base64);
+        } else {
+            binaryString = imageData;
+        }
+
+        // Check if image is JPEG (piexif only works with JPEG)
+        if (!binaryString.startsWith('\xff\xd8')) {
+            throw new Error('Only JPEG images are supported for EXIF editing');
+        }
+
         // Load existing EXIF if available
         let exifObj = {};
         try {
-            exifObj = piexif.load(imageData);
+            exifObj = piexif.load(binaryString);
         } catch (e) {
             // No existing EXIF, start fresh
             exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
@@ -297,11 +314,18 @@ function writeExifData(imageData, newExif) {
         const exifString = piexif.dump(exifObj);
         
         // Insert EXIF into image
-        const newImageData = piexif.insert(exifString, imageData);
+        const newBinaryString = piexif.insert(exifString, binaryString);
+        
+        // Convert back to data URL
+        const base64 = btoa(newBinaryString);
+        const mimeType = imageData.startsWith('data:') 
+            ? imageData.split(',')[0].split(':')[1].split(';')[0]
+            : 'image/jpeg';
+        const newImageData = `data:${mimeType};base64,${base64}`;
         
         return newImageData;
     } catch (error) {
-        throw new Error('Failed to write EXIF data: ' + error.message);
+        throw new Error('Failed to write EXIF data: ' + (error.message || String(error)));
     }
 }
 
