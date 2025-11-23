@@ -232,6 +232,49 @@ header p {
     display: none;
 }
 
+.image-actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.crop-editor {
+    background: #f8f9fa;
+    padding: 30px;
+    border-radius: 10px;
+    margin-bottom: 30px;
+}
+
+.crop-editor h2 {
+    color: #667eea;
+    margin-bottom: 10px;
+    font-size: 1.8em;
+}
+
+.info-text {
+    color: #666;
+    margin-bottom: 25px;
+    font-size: 0.95em;
+}
+
+.crop-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.crop-grid .form-group {
+    margin-bottom: 0;
+}
+
+.crop-grid small {
+    display: block;
+    margin-top: 5px;
+    color: #888;
+    font-size: 0.85em;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 20px;
@@ -243,6 +286,10 @@ header p {
 
     .button-group {
         flex-direction: column;
+    }
+
+    .crop-grid {
+        grid-template-columns: 1fr;
     }
 }
 

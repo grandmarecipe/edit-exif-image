@@ -588,3 +588,110 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// ========== CROP IMAGE FUNCTIONALITY ==========
+
+// Get current image URL (from input or convert data URL to blob URL)
+async function getCurrentImageUrl() {
+    const urlInput = document.getElementById('imageUrl').value.trim();
+    if (urlInput) {
+        return urlInput;
+    }
+    
+    // If we have a data URL, convert it to a blob URL
+    if (currentImageData && currentImageData.startsWith('data:')) {
+        const response = await fetch(currentImageData);
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+    }
+    
+    throw new Error('No image loaded. Please load an image first.');
+}
+
+// Show crop editor
+document.getElementById('showCropBtn').addEventListener('click', () => {
+    document.getElementById('cropEditor').classList.remove('hidden');
+    document.getElementById('cropEditor').scrollIntoView({ behavior: 'smooth' });
+});
+
+// Reset crop form
+document.getElementById('cropResetBtn').addEventListener('click', () => {
+    document.getElementById('cropTop').value = '';
+    document.getElementById('cropBottom').value = '';
+    document.getElementById('cropLeft').value = '';
+    document.getElementById('cropRight').value = '';
+});
+
+// Crop image
+document.getElementById('cropBtn').addEventListener('click', async () => {
+    try {
+        // Get crop values
+        const cropTop = parseInt(document.getElementById('cropTop').value) || 0;
+        const cropBottom = parseInt(document.getElementById('cropBottom').value) || 0;
+        const cropLeft = parseInt(document.getElementById('cropLeft').value) || 0;
+        const cropRight = parseInt(document.getElementById('cropRight').value) || 0;
+
+        // Validate that at least one crop value is provided
+        if (cropTop === 0 && cropBottom === 0 && cropLeft === 0 && cropRight === 0) {
+            showNotification('Please enter at least one crop value (top, bottom, left, or right)', 'error');
+            return;
+        }
+
+        // Get current image URL
+        let imageUrl;
+        try {
+            imageUrl = await getCurrentImageUrl();
+        } catch (error) {
+            showNotification('Please load an image first (from URL or file upload)', 'error');
+            return;
+        }
+
+        showNotification('Cropping image...', 'info');
+
+        // Prepare crop options
+        const cropOptions = {};
+        if (cropTop > 0) cropOptions.top = cropTop;
+        if (cropBottom > 0) cropOptions.bottom = cropBottom;
+        if (cropLeft > 0) cropOptions.left = cropLeft;
+        if (cropRight > 0) cropOptions.right = cropRight;
+
+        // Call crop API
+        const response = await fetch('/api/crop-image', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                imageUrl: imageUrl,
+                cropOptions: cropOptions
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to crop image');
+        }
+
+        // Get the cropped image as blob
+        const blob = await response.blob();
+        const croppedDataUrl = URL.createObjectURL(blob);
+
+        // Display the cropped image
+        displayImage(croppedDataUrl);
+        
+        // Update current image data
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            currentImageData = e.target.result;
+            // Re-read EXIF data from cropped image
+            readExifData(currentImageData);
+        };
+        reader.readAsDataURL(blob);
+
+        showNotification('Image cropped successfully!', 'success');
+
+    } catch (error) {
+        console.error('Crop error:', error);
+        showNotification('Failed to crop image: ' + error.message, 'error');
+    }
+});
+

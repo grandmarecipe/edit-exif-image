@@ -28,6 +28,9 @@
 
         <div id="imagePreview" class="image-preview hidden">
             <img id="previewImg" alt="Preview">
+            <div class="image-actions">
+                <button id="showCropBtn" class="btn-secondary">🖼️ Crop Image</button>
+            </div>
         </div>
 
         <div id="exifEditor" class="exif-editor hidden">
@@ -94,6 +97,42 @@
             <div class="button-group">
                 <button id="saveBtn" class="btn-primary">Save EXIF Data</button>
                 <button id="resetBtn" class="btn-secondary">Reset</button>
+            </div>
+        </div>
+
+        <div id="cropEditor" class="crop-editor hidden">
+            <h2>🖼️ Crop Image</h2>
+            <p class="info-text">Crop pixels from specific edges of the image</p>
+            
+            <div class="form-section">
+                <h3>Crop Options</h3>
+                <div class="crop-grid">
+                    <div class="form-group">
+                        <label for="cropTop">Crop from Top (pixels):</label>
+                        <input type="number" id="cropTop" min="0" step="1" placeholder="0">
+                        <small>Remove pixels from top edge</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="cropBottom">Crop from Bottom (pixels):</label>
+                        <input type="number" id="cropBottom" min="0" step="1" placeholder="0">
+                        <small>Remove pixels from bottom edge</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="cropLeft">Crop from Left (pixels):</label>
+                        <input type="number" id="cropLeft" min="0" step="1" placeholder="0">
+                        <small>Remove pixels from left edge</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="cropRight">Crop from Right (pixels):</label>
+                        <input type="number" id="cropRight" min="0" step="1" placeholder="0">
+                        <small>Remove pixels from right edge</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button id="cropBtn" class="btn-primary">Crop Image</button>
+                <button id="cropResetBtn" class="btn-secondary">Reset Crop</button>
             </div>
         </div>
 
