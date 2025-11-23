@@ -552,10 +552,10 @@ function writeExifData(imageData, newExif) {
 }
 
 // Download image
-function downloadImage(imageData) {
+function downloadImage(imageData, filename = 'edited-image.jpg') {
     const link = document.createElement('a');
     link.href = imageData;
-    link.download = 'edited-image.jpg';
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -692,7 +692,10 @@ document.getElementById('cropBtn').addEventListener('click', async () => {
         };
         reader.readAsDataURL(blob);
 
-        showNotification('Image cropped successfully!', 'success');
+        // Download the cropped image automatically
+        downloadImage(croppedDataUrl, 'cropped-image.jpg');
+
+        showNotification('Image cropped and downloaded successfully!', 'success');
 
     } catch (error) {
         console.error('Crop error:', error);
