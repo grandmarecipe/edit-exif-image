@@ -380,24 +380,28 @@ function collectFormData() {
         exif['0th'][piexif.ImageIFD.Model] = String(model);
     }
 
-    // DateTime
-    const datetime = document.getElementById('datetime').value;
-    if (datetime) {
-        const date = new Date(datetime);
-        if (!isNaN(date.getTime())) {
-            // Format: YYYY:MM:DD HH:MM:SS
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            const seconds = String(date.getSeconds()).padStart(2, '0');
-            const dateStr = `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
-            
-            exif['0th'] = exif['0th'] || {};
-            exif['0th'][piexif.ImageIFD.DateTime] = String(dateStr);
-            exif['Exif'] = exif['Exif'] || {};
-            exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = String(dateStr);
+    // DateTime - validate and format properly
+    const datetime = document.getElementById('datetime').value.trim();
+    if (datetime && datetime !== '--:--' && !datetime.includes('--:--')) {
+        try {
+            const date = new Date(datetime);
+            if (!isNaN(date.getTime()) && date.getFullYear() > 1900) {
+                // Format: YYYY:MM:DD HH:MM:SS (EXIF standard format)
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                const dateStr = `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
+                
+                exif['0th'] = exif['0th'] || {};
+                exif['0th'][piexif.ImageIFD.DateTime] = dateStr; // Already a string
+                exif['Exif'] = exif['Exif'] || {};
+                exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = dateStr; // Already a string
+            }
+        } catch (e) {
+            console.warn('Invalid date format, skipping DateTime:', datetime);
         }
     }
 
@@ -472,6 +476,47 @@ function writeExifData(imageData, newExif) {
         
         if (!has0thData && !hasExifData && !hasGPSData) {
             throw new Error('No EXIF data to save. Please fill in at least one field.');
+        }
+
+        // Clean and validate EXIF data - ensure correct types
+        // Remove any undefined or null values that might cause issues
+        function cleanExifSection(section) {
+            if (!section || typeof section !== 'object') return {};
+            const cleaned = {};
+            for (const key in section) {
+                const value = section[key];
+                if (value !== undefined && value !== null) {
+                    // For GPS coordinates, ensure they're arrays
+                    if (key === piexif.GPSIFD.GPSLatitude || key === piexif.GPSIFD.GPSLongitude) {
+                        if (Array.isArray(value) && value.length === 3) {
+                            cleaned[key] = value.map(v => Array.isArray(v) ? v : [v, 1]);
+                        }
+                    } else if (key === piexif.GPSIFD.GPSAltitude) {
+                        if (Array.isArray(value) && value.length === 2) {
+                            cleaned[key] = [Math.round(value[0]), Math.round(value[1])];
+                        }
+                    } else if (key === piexif.GPSIFD.GPSAltitudeRef) {
+                        cleaned[key] = value === 0 || value === 1 ? value : 0;
+                    } else if (key === piexif.GPSIFD.GPSLatitudeRef || key === piexif.GPSIFD.GPSLongitudeRef) {
+                        cleaned[key] = String(value);
+                    } else {
+                        // For text fields, ensure they're strings
+                        cleaned[key] = typeof value === 'string' ? value : String(value);
+                    }
+                }
+            }
+            return cleaned;
+        }
+
+        // Clean all sections
+        if (exifObj['0th']) {
+            exifObj['0th'] = cleanExifSection(exifObj['0th']);
+        }
+        if (exifObj['Exif']) {
+            exifObj['Exif'] = cleanExifSection(exifObj['Exif']);
+        }
+        if (exifObj['GPS']) {
+            exifObj['GPS'] = cleanExifSection(exifObj['GPS']);
         }
 
         // Validate EXIF object structure before dumping
