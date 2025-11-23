@@ -218,8 +218,8 @@ function populateForm(exifData) {
     document.getElementById('description').value = 
         exifData.ImageDescription || exifData.UserComment || '';
 
-    // Keywords (XPKeywords or Subject)
-    const keywords = exifData.XPKeywords || exifData.Subject || '';
+    // Keywords (DocumentName, XPKeywords, or Subject)
+    const keywords = exifData.DocumentName || exifData.XPKeywords || exifData.Subject || '';
     document.getElementById('keywords').value = Array.isArray(keywords) 
         ? keywords.join(', ') 
         : keywords;
@@ -330,12 +330,13 @@ function collectFormData() {
         exif['0th'][piexif.ImageIFD.ImageDescription] = String(description);
     }
 
-    // Keywords - skip for now as XPKeywords might not be fully supported
-    // const keywords = document.getElementById('keywords').value.trim();
-    // if (keywords) {
-    //     exif['0th'] = exif['0th'] || {};
-    //     exif['0th'][piexif.ImageIFD.XPKeywords] = String(keywords.split(',').map(k => k.trim()).join(';'));
-    // }
+    // Keywords - use DocumentName field which is more widely supported
+    const keywords = document.getElementById('keywords').value.trim();
+    if (keywords) {
+        exif['0th'] = exif['0th'] || {};
+        // Use DocumentName field for keywords (more widely recognized than XPKeywords)
+        exif['0th'][piexif.ImageIFD.DocumentName] = String(keywords.split(',').map(k => k.trim()).join(', '));
+    }
 
     // GPS Coordinates - only set if both lat and lon are provided
     const latStr = document.getElementById('latitude').value.trim();
@@ -456,6 +457,9 @@ function writeExifData(imageData, newExif) {
             }
             if (newExif['0th'][piexif.ImageIFD.DateTime]) {
                 exifObj['0th'][piexif.ImageIFD.DateTime] = String(newExif['0th'][piexif.ImageIFD.DateTime]);
+            }
+            if (newExif['0th'][piexif.ImageIFD.DocumentName]) {
+                exifObj['0th'][piexif.ImageIFD.DocumentName] = String(newExif['0th'][piexif.ImageIFD.DocumentName]);
             }
         }
         
