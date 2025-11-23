@@ -64,46 +64,70 @@ module.exports = async function handler(req, res) {
         }
 
         try {
-            // For short Plus Codes, try with location context from the original input
             // Extract location hint from original input (e.g., "Agadir, Maroc")
             let locationHint = '';
-            const locationMatch = plusCode.match(/[A-Z0-9]+\+[A-Z0-9]+\s+(.+)/i);
+            const locationMatch = plusCode.match(/[A-Z0-9]+\+[A-Z0-9]+\s*(.+)/i);
             if (locationMatch) {
                 locationHint = locationMatch[1].trim();
             }
             
-            // Try multiple formats to help Google Maps API decode the Plus Code
+            // Google Maps Geocoding API supports Plus Codes in multiple formats
+            // Try different query formats to maximize success rate
             const queriesToTry = [
-                cleanCode, // Just the code
-                locationHint ? `${cleanCode} ${locationHint}` : null, // Code with location hint
-                locationHint ? `${locationHint} ${cleanCode}` : null, // Location hint with code
+                cleanCode, // Just the code: "9CXG+XG6"
+                cleanCode.replace(/(\d)$/, ''), // Remove trailing digit if present: "9CXG+XG"
+                locationHint ? `${cleanCode}, ${locationHint}` : null, // Code with location: "9CXG+XG6, Agadir, Maroc"
+                locationHint ? `${locationHint}, ${cleanCode}` : null, // Location with code: "Agadir, Maroc, 9CXG+XG6"
+                locationHint ? `${cleanCode.replace(/(\d)$/, '')}, ${locationHint}` : null, // Code without trailing digit + location
             ].filter(q => q !== null);
             
+            let lastError = null;
+            let lastStatus = null;
+            
             for (const query of queriesToTry) {
-                const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-                const mapsResponse = await fetch(mapsUrl);
-                const mapsData = await mapsResponse.json();
-                
-                if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
-                    const location = mapsData.results[0].geometry.location;
-                    return res.status(200).json({
-                        plusCode: cleanCode,
-                        latitude: location.lat,
-                        longitude: location.lng,
-                        formatted: `${location.lat}, ${location.lng}`,
-                        address: mapsData.results[0].formatted_address,
-                        source: 'Google Maps Geocoding API',
-                        queryUsed: query
-                    });
+                try {
+                    const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                    console.log(`Trying Google Maps API with query: ${query}`);
+                    
+                    const mapsResponse = await fetch(mapsUrl);
+                    const mapsData = await mapsResponse.json();
+                    
+                    console.log(`Google Maps API response status: ${mapsData.status}`, mapsData);
+                    
+                    if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
+                        const location = mapsData.results[0].geometry.location;
+                        return res.status(200).json({
+                            plusCode: cleanCode,
+                            latitude: location.lat,
+                            longitude: location.lng,
+                            formatted: `${location.lat}, ${location.lng}`,
+                            address: mapsData.results[0].formatted_address,
+                            source: 'Google Maps Geocoding API',
+                            queryUsed: query
+                        });
+                    }
+                    
+                    // Store last error for debugging
+                    lastStatus = mapsData.status;
+                    if (mapsData.error_message) {
+                        lastError = mapsData.error_message;
+                    }
+                    
+                } catch (fetchError) {
+                    console.error(`Error fetching for query "${query}":`, fetchError);
+                    lastError = fetchError.message;
                 }
             }
             
-            // If all queries failed, return error
+            // If all queries failed, return detailed error
             return res.status(400).json({ 
-                error: 'Plus Code not found. The Plus Code may be invalid or the location context is needed.',
+                error: 'Plus Code not found in Google Maps API',
                 received: plusCode,
                 extracted: cleanCode,
-                suggestion: 'Try including the location with the Plus Code (e.g., "CC2C+8X Agadir, Morocco") or use the full Plus Code format.'
+                googleStatus: lastStatus || 'UNKNOWN',
+                googleError: lastError || 'No results found',
+                queriesTried: queriesToTry,
+                suggestion: 'The Plus Code may be invalid, or Google Maps API may not recognize it. Verify the Plus Code on plus.codes website.'
             });
             
         } catch (mapsError) {
