@@ -1,6 +1,6 @@
 {
   "name": "exif-editor-webapp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Web app for editing EXIF data in images including description, keywords, and geotags",
   "main": "index.html",
   "scripts": {
