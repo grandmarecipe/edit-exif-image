@@ -330,13 +330,12 @@ function collectFormData() {
         exif['0th'][piexif.ImageIFD.ImageDescription] = String(description);
     }
 
-    // Keywords
-    const keywords = document.getElementById('keywords').value.trim();
-    if (keywords) {
-        exif['0th'] = exif['0th'] || {};
-        // XPKeywords needs to be a string
-        exif['0th'][piexif.ImageIFD.XPKeywords] = String(keywords.split(',').map(k => k.trim()).join(';'));
-    }
+    // Keywords - skip for now as XPKeywords might not be fully supported
+    // const keywords = document.getElementById('keywords').value.trim();
+    // if (keywords) {
+    //     exif['0th'] = exif['0th'] || {};
+    //     exif['0th'][piexif.ImageIFD.XPKeywords] = String(keywords.split(',').map(k => k.trim()).join(';'));
+    // }
 
     // GPS Coordinates - only set if both lat and lon are provided
     const latStr = document.getElementById('latitude').value.trim();
@@ -385,9 +384,10 @@ function collectFormData() {
     if (datetime && datetime !== '--:--' && !datetime.includes('--:--')) {
         try {
             const date = new Date(datetime);
-            if (!isNaN(date.getTime()) && date.getFullYear() > 1900) {
+            const year = date.getFullYear();
+            // Validate year is reasonable (1900-2100)
+            if (!isNaN(date.getTime()) && year >= 1900 && year <= 2100) {
                 // Format: YYYY:MM:DD HH:MM:SS (EXIF standard format)
-                const year = date.getFullYear();
                 const month = String(date.getMonth() + 1).padStart(2, '0');
                 const day = String(date.getDate()).padStart(2, '0');
                 const hours = String(date.getHours()).padStart(2, '0');
@@ -396,12 +396,14 @@ function collectFormData() {
                 const dateStr = `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
                 
                 exif['0th'] = exif['0th'] || {};
-                exif['0th'][piexif.ImageIFD.DateTime] = dateStr; // Already a string
+                exif['0th'][piexif.ImageIFD.DateTime] = dateStr;
                 exif['Exif'] = exif['Exif'] || {};
-                exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = dateStr; // Already a string
+                exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = dateStr;
+            } else {
+                console.warn('Date year out of valid range (1900-2100):', year);
             }
         } catch (e) {
-            console.warn('Invalid date format, skipping DateTime:', datetime);
+            console.warn('Invalid date format, skipping DateTime:', datetime, e);
         }
     }
 
@@ -526,13 +528,50 @@ function writeExifData(imageData, newExif) {
             delete exifObj['Exif'];
         }
 
+        // Validate EXIF structure before dumping
+        // Remove any sections that are completely empty
+        if (Object.keys(exifObj['0th']).length === 0) {
+            delete exifObj['0th'];
+        }
+        if (Object.keys(exifObj['Exif']).length === 0) {
+            delete exifObj['Exif'];
+        }
+        if (Object.keys(exifObj['GPS']).length === 0) {
+            delete exifObj['GPS'];
+        }
+        
+        // Ensure we have at least one section with data
+        if (!exifObj['0th'] && !exifObj['Exif'] && !exifObj['GPS']) {
+            throw new Error('No EXIF data to save. Please fill in at least one field.');
+        }
+        
+        // Re-add required structure for piexif
+        if (!exifObj['0th']) exifObj['0th'] = {};
+        if (!exifObj['Exif']) exifObj['Exif'] = {};
+        if (!exifObj['GPS']) exifObj['GPS'] = {};
+        if (!exifObj['Interop']) exifObj['Interop'] = {};
+        if (!exifObj['1st']) exifObj['1st'] = {};
+        if (exifObj['thumbnail'] === undefined) exifObj['thumbnail'] = null;
+
         // Convert to binary
         let exifString;
         try {
+            // Log the structure for debugging
+            console.log('Attempting to dump EXIF:', {
+                '0th': Object.keys(exifObj['0th']),
+                'Exif': Object.keys(exifObj['Exif']),
+                'GPS': Object.keys(exifObj['GPS'])
+            });
             exifString = piexif.dump(exifObj);
         } catch (dumpError) {
-            console.error('EXIF dump error:', dumpError, 'EXIF object:', JSON.stringify(exifObj, null, 2));
-            const errorMsg = dumpError.message || dumpError.toString() || 'Unknown error';
+            console.error('EXIF dump error:', dumpError);
+            console.error('EXIF object structure:', JSON.stringify(exifObj, (key, value) => {
+                // Don't stringify functions or circular refs
+                if (typeof value === 'function') return '[Function]';
+                if (value instanceof Array) return value;
+                return value;
+            }, 2));
+            const errorMsg = dumpError.message || dumpError.toString() || String(dumpError);
             throw new Error('Failed to create EXIF data: ' + errorMsg);
         }
         
