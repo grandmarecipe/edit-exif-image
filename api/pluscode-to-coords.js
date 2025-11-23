@@ -95,15 +95,57 @@ module.exports = async function handler(req, res) {
                     console.log(`Google Maps API response status: ${mapsData.status}`, mapsData);
                     
                     if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
-                        const location = mapsData.results[0].geometry.location;
+                        const result = mapsData.results[0];
+                        const location = result.geometry.location;
+                        
+                        // Try to get more precise coordinates from the Plus Code in the response
+                        // Google Maps API sometimes includes the Plus Code object with more precise location
+                        let finalLat = location.lat;
+                        let finalLng = location.lng;
+                        
+                        // Check if the result has a plus_code object with a compound_code or global_code
+                        if (result.plus_code) {
+                            // If we have a place_id, we can use Place Details API for more precise coordinates
+                            // But for now, use the location_type to determine precision
+                            const locationType = result.geometry.location_type;
+                            
+                            // If location_type is 'ROOFTOP' or 'RANGE_INTERPOLATED', coordinates are more precise
+                            // 'GEOMETRIC_CENTER' or 'APPROXIMATE' means it's the center of the area
+                            if (locationType === 'ROOFTOP' || locationType === 'RANGE_INTERPOLATED') {
+                                // These are already precise
+                                finalLat = location.lat;
+                                finalLng = location.lng;
+                            }
+                        }
+                        
+                        // Use Place Details API to get more precise coordinates if we have a place_id
+                        // This gives us the exact coordinates that Google Maps shows
+                        if (result.place_id) {
+                            try {
+                                const placeDetailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${result.place_id}&fields=geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+                                const placeResponse = await fetch(placeDetailsUrl);
+                                const placeData = await placeResponse.json();
+                                
+                                if (placeData.status === 'OK' && placeData.result && placeData.result.geometry && placeData.result.geometry.location) {
+                                    finalLat = placeData.result.geometry.location.lat;
+                                    finalLng = placeData.result.geometry.location.lng;
+                                    console.log(`Using Place Details API coordinates: ${finalLat}, ${finalLng}`);
+                                }
+                            } catch (placeError) {
+                                console.warn('Place Details API failed, using Geocoding coordinates:', placeError);
+                            }
+                        }
+                        
                         return res.status(200).json({
                             plusCode: cleanCode,
-                            latitude: location.lat,
-                            longitude: location.lng,
-                            formatted: `${location.lat}, ${location.lng}`,
-                            address: mapsData.results[0].formatted_address,
+                            latitude: finalLat,
+                            longitude: finalLng,
+                            formatted: `${finalLat}, ${finalLng}`,
+                            address: result.formatted_address,
                             source: 'Google Maps Geocoding API',
-                            queryUsed: query
+                            queryUsed: query,
+                            locationType: result.geometry.location_type,
+                            placeId: result.place_id || null
                         });
                     }
                     
