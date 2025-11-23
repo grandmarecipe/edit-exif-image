@@ -274,7 +274,9 @@ function convertDDToDMS(dd, isLat) {
         ? (dd >= 0 ? "N" : "S")
         : (dd >= 0 ? "E" : "W");
     // piexif expects rational numbers: [[deg, 1], [min, 1], [sec*100, 100]]
-    return [[[deg, 1], [min, 1], [Math.round(sec * 100), 100]], ref];
+    // All values must be integers
+    const secNumerator = Math.round(sec * 100);
+    return [[[Math.floor(deg), 1], [Math.floor(min), 1], [secNumerator, 100]], ref];
 }
 
 // Save EXIF data
@@ -313,33 +315,45 @@ function collectFormData() {
     const description = document.getElementById('description').value.trim();
     if (description) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.ImageDescription] = description;
+        // Ensure it's a string
+        exif['0th'][piexif.ImageIFD.ImageDescription] = String(description);
     }
 
     // Keywords
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.XPKeywords] = keywords.split(',').map(k => k.trim()).join(';');
+        // XPKeywords needs to be a string
+        exif['0th'][piexif.ImageIFD.XPKeywords] = String(keywords.split(',').map(k => k.trim()).join(';'));
     }
 
-    // GPS Coordinates
-    const lat = parseFloat(document.getElementById('latitude').value);
-    const lon = parseFloat(document.getElementById('longitude').value);
-    if (!isNaN(lat) && !isNaN(lon)) {
+    // GPS Coordinates - only set if both lat and lon are provided
+    const latStr = document.getElementById('latitude').value.trim();
+    const lonStr = document.getElementById('longitude').value.trim();
+    const lat = parseFloat(latStr);
+    const lon = parseFloat(lonStr);
+    
+    // Only add GPS if both coordinates are provided and valid
+    if (latStr && lonStr && !isNaN(lat) && !isNaN(lon) && 
+        lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
         exif['GPS'] = exif['GPS'] || {};
         const latResult = convertDDToDMS(lat, true);
         const lonResult = convertDDToDMS(lon, false);
         
-        exif['GPS'][piexif.GPSIFD.GPSLatitude] = latResult[0];
-        exif['GPS'][piexif.GPSIFD.GPSLatitudeRef] = latResult[1];
-        exif['GPS'][piexif.GPSIFD.GPSLongitude] = lonResult[0];
-        exif['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lonResult[1];
-        
-        const altitude = parseFloat(document.getElementById('altitude').value);
-        if (!isNaN(altitude)) {
-            exif['GPS'][piexif.GPSIFD.GPSAltitude] = [Math.round(Math.abs(altitude) * 100), 100];
-            exif['GPS'][piexif.GPSIFD.GPSAltitudeRef] = altitude >= 0 ? 0 : 1;
+        // Ensure GPS coordinates are in correct format - validate the structure
+        if (Array.isArray(latResult[0]) && Array.isArray(lonResult[0])) {
+            exif['GPS'][piexif.GPSIFD.GPSLatitude] = latResult[0];
+            exif['GPS'][piexif.GPSIFD.GPSLatitudeRef] = String(latResult[1]); // Must be string
+            exif['GPS'][piexif.GPSIFD.GPSLongitude] = lonResult[0];
+            exif['GPS'][piexif.GPSIFD.GPSLongitudeRef] = String(lonResult[1]); // Must be string
+            
+            const altitude = parseFloat(document.getElementById('altitude').value);
+            if (!isNaN(altitude) && altitude !== 0) {
+                // Altitude must be rational number [numerator, denominator] as integers
+                const altNum = Math.round(Math.abs(altitude) * 100);
+                exif['GPS'][piexif.GPSIFD.GPSAltitude] = [altNum, 100];
+                exif['GPS'][piexif.GPSIFD.GPSAltitudeRef] = altitude >= 0 ? 0 : 1; // Must be integer 0 or 1
+            }
         }
     }
 
@@ -348,29 +362,39 @@ function collectFormData() {
     const model = document.getElementById('model').value.trim();
     if (make) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Make] = make;
+        exif['0th'][piexif.ImageIFD.Make] = String(make);
     }
     if (model) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Model] = model;
+        exif['0th'][piexif.ImageIFD.Model] = String(model);
     }
 
     // DateTime
     const datetime = document.getElementById('datetime').value;
     if (datetime) {
         const date = new Date(datetime);
-        const dateStr = date.toISOString().replace(/[-T]/g, ':').slice(0, 19);
-        exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.DateTime] = dateStr;
-        exif['Exif'] = exif['Exif'] || {};
-        exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = dateStr;
+        if (!isNaN(date.getTime())) {
+            // Format: YYYY:MM:DD HH:MM:SS
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            const dateStr = `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
+            
+            exif['0th'] = exif['0th'] || {};
+            exif['0th'][piexif.ImageIFD.DateTime] = String(dateStr);
+            exif['Exif'] = exif['Exif'] || {};
+            exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = String(dateStr);
+        }
     }
 
     // Copyright
     const copyright = document.getElementById('copyright').value.trim();
     if (copyright) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Copyright] = copyright;
+        exif['0th'][piexif.ImageIFD.Copyright] = String(copyright);
     }
 
     return exif;
@@ -404,19 +428,40 @@ function writeExifData(imageData, newExif) {
             exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         }
 
-        // Merge new EXIF data
+        // Merge new EXIF data with validation
         if (newExif['0th']) {
+            exifObj['0th'] = exifObj['0th'] || {};
             Object.assign(exifObj['0th'], newExif['0th']);
         }
         if (newExif['Exif']) {
+            exifObj['Exif'] = exifObj['Exif'] || {};
             Object.assign(exifObj['Exif'], newExif['Exif']);
         }
         if (newExif['GPS']) {
-            Object.assign(exifObj['GPS'], newExif['GPS']);
+            exifObj['GPS'] = exifObj['GPS'] || {};
+            // Validate GPS structure before assigning
+            const gpsData = newExif['GPS'];
+            if (gpsData[piexif.GPSIFD.GPSLatitude] && gpsData[piexif.GPSIFD.GPSLongitude]) {
+                Object.assign(exifObj['GPS'], gpsData);
+            }
+        }
+
+        // Clean up empty sections
+        if (Object.keys(exifObj['GPS']).length === 0) {
+            delete exifObj['GPS'];
+        }
+        if (Object.keys(exifObj['Exif']).length === 0) {
+            delete exifObj['Exif'];
         }
 
         // Convert to binary
-        const exifString = piexif.dump(exifObj);
+        let exifString;
+        try {
+            exifString = piexif.dump(exifObj);
+        } catch (dumpError) {
+            console.error('EXIF dump error:', dumpError, 'EXIF object:', exifObj);
+            throw new Error('Failed to create EXIF data: ' + dumpError.message);
+        }
         
         // Insert EXIF into image
         const newBinaryString = piexif.insert(exifString, binaryString);
