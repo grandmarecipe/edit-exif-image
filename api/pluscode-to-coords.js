@@ -34,15 +34,26 @@ function decodePlusCode(plusCode) {
     let lat = referenceLat;
     let lng = referenceLng;
     
-    // Simple approximation for short codes
-    // This is a simplified decoder - for production, use a proper library or API
-    if (code.startsWith('CC2C+8X')) {
-        // Known coordinates for Amseel Cars
-        return {
-            latitude: 30.40082090,
-            longitude: -9.57759430
+        // Known Plus Codes mapping (for specific codes we know)
+        const knownCodes = {
+            'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430 },
+            'CC2C+8X AGADIR': { latitude: 30.40082090, longitude: -9.57759430 },
+            'CC2C+8X AGADIR, MAROC': { latitude: 30.40082090, longitude: -9.57759430 }
         };
-    }
+        
+        // Check if we have this code in our known list
+        const upperCode = code.toUpperCase();
+        if (knownCodes[upperCode] || knownCodes[code]) {
+            return knownCodes[upperCode] || knownCodes[code];
+        }
+        
+        // Check if code starts with known prefix
+        if (code.startsWith('CC2C+8X')) {
+            return {
+                latitude: 30.40082090,
+                longitude: -9.57759430
+            };
+        }
     
     // For other codes, try to use a geocoding service
     return null;
@@ -68,10 +79,38 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // Use Google Plus Codes API to decode
+        // Extract Plus Code from the input
         // Format: CC2C+8X Agadir, Maroc -> extract just the code part
-        const codeMatch = plusCode.match(/([A-Z0-9]{2,}\+[A-Z0-9]{2,})/);
-        const cleanCode = codeMatch ? codeMatch[1] : plusCode.replace(/[^A-Z0-9+]/g, '');
+        let cleanCode = plusCode.trim();
+        
+        // Try to match Plus Code pattern (e.g., CC2C+8X)
+        const codeMatch = cleanCode.match(/([A-Z0-9]{2,}\+[A-Z0-9]{2,})/i);
+        if (codeMatch) {
+            cleanCode = codeMatch[1].toUpperCase();
+        } else {
+            // If no match, try to extract by removing non-code characters
+            cleanCode = cleanCode.replace(/[^A-Z0-9+]/gi, '').toUpperCase();
+        }
+        
+        // Validate the code format
+        if (!cleanCode.includes('+') || cleanCode.length < 8) {
+            return res.status(400).json({ 
+                error: 'Invalid Plus Code format. Expected format: CC2C+8X or similar.',
+                received: plusCode,
+                extracted: cleanCode
+            });
+        }
+        
+        // Check for known Plus Code first (CC2C+8X)
+        if (cleanCode === 'CC2C+8X' || cleanCode.startsWith('CC2C+8X')) {
+            return res.status(200).json({
+                plusCode: 'CC2C+8X',
+                latitude: 30.40082090,
+                longitude: -9.57759430,
+                formatted: '30.40082090, -9.57759430',
+                location: 'Agadir, Morocco'
+            });
+        }
 
         // Use Google Geocoding API to convert Plus Code to coordinates
         const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
@@ -120,7 +159,7 @@ module.exports = async function handler(req, res) {
             }
         }
 
-        // Try manual decoder first
+        // Try manual decoder
         const decoded = decodePlusCode(cleanCode);
         if (decoded) {
             return res.status(200).json({
@@ -154,7 +193,9 @@ module.exports = async function handler(req, res) {
         }
 
         return res.status(400).json({ 
-            error: 'Could not decode Plus Code. Please provide a valid Plus Code format (e.g., CC2C+8X).' 
+            error: 'Could not decode Plus Code. Please provide a valid Plus Code format (e.g., CC2C+8X).',
+            received: plusCode,
+            extracted: cleanCode
         });
 
     } catch (error) {
