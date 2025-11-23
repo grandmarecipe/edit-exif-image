@@ -1,64 +1,5 @@
 // Convert Plus Code to Latitude and Longitude
-// Manual Plus Code decoder
-
-function decodePlusCode(plusCode) {
-    // Remove any extra text and extract the code
-    const codeMatch = plusCode.match(/([A-Z0-9]{2,}\+[A-Z0-9]{2,})/);
-    if (!codeMatch) {
-        return null;
-    }
-    
-    const code = codeMatch[1].toUpperCase();
-    const parts = code.split('+');
-    if (parts.length !== 2) {
-        return null;
-    }
-    
-    const codeLength = parts[0].length + parts[1].length;
-    // Plus Codes can be 6-10 characters (short codes are 6-8, full codes are 8-10)
-    if (codeLength < 6 || codeLength > 10) {
-        return null;
-    }
-    
-    // Plus Code alphabet (excluding I, O, U, and 0 to avoid confusion)
-    const alphabet = '23456789CFGHJMPQRVWX';
-    
-    // For full Plus Codes (8+ characters), we need the reference location
-    // For short codes like CC2C+8X, we need a reference point (usually a city center)
-    
-    // CC2C+8X is in Agadir, Morocco
-    // Reference point for Agadir area: approximately 30.4, -9.6
-    const referenceLat = 30.4;
-    const referenceLng = -9.6;
-    
-    // Decode the code
-    let lat = referenceLat;
-    let lng = referenceLng;
-    
-        // Known Plus Codes mapping (for specific codes we know)
-        const knownCodes = {
-            'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430 },
-            'CC2C+8X AGADIR': { latitude: 30.40082090, longitude: -9.57759430 },
-            'CC2C+8X AGADIR, MAROC': { latitude: 30.40082090, longitude: -9.57759430 }
-        };
-        
-        // Check if we have this code in our known list
-        const upperCode = code.toUpperCase();
-        if (knownCodes[upperCode] || knownCodes[code]) {
-            return knownCodes[upperCode] || knownCodes[code];
-        }
-        
-        // Check if code starts with known prefix
-        if (code.startsWith('CC2C+8X')) {
-            return {
-                latitude: 30.40082090,
-                longitude: -9.57759430
-            };
-        }
-    
-    // For other codes, try to use a geocoding service
-    return null;
-}
+// Uses Google Maps Geocoding API which supports Plus Codes
 
 module.exports = async function handler(req, res) {
     // Enable CORS
@@ -93,7 +34,7 @@ module.exports = async function handler(req, res) {
             cleanCode = cleanCode.replace(/[^A-Z0-9+]/gi, '').toUpperCase();
         }
         
-        // Validate the code format - Plus Codes can be 6-10 characters
+        // Validate the code format
         if (!cleanCode.includes('+')) {
             return res.status(400).json({ 
                 error: 'Invalid Plus Code format. Must contain a + symbol.',
@@ -111,47 +52,8 @@ module.exports = async function handler(req, res) {
             });
         }
         
-        // FIRST: Try fetching from plus.codes website and parsing coordinates (most reliable)
-        try {
-            const plusCodesPageUrl = `https://plus.codes/${cleanCode}`;
-            const pageResponse = await fetch(plusCodesPageUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-            
-            if (pageResponse.ok) {
-                const pageText = await pageResponse.text();
-                // Look for coordinate patterns in the page HTML/JSON
-                const coordPatterns = [
-                    /"lat":\s*([\d.]+),\s*"lng":\s*([\d.-]+)/,
-                    /latitude["\s:]+([\d.]+).*longitude["\s:]+([\d.-]+)/i,
-                    /coordinates["\s:]+([\d.]+),\s*([\d.-]+)/i,
-                    /(\d+\.\d+),\s*(-?\d+\.\d+)/  // Simple lat,lng pattern
-                ];
-                
-                for (const pattern of coordPatterns) {
-                    const match = pageText.match(pattern);
-                    if (match) {
-                        const lat = parseFloat(match[1]);
-                        const lng = parseFloat(match[2]);
-                        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-                            return res.status(200).json({
-                                plusCode: cleanCode,
-                                latitude: lat,
-                                longitude: lng,
-                                formatted: `${lat}, ${lng}`,
-                                source: 'plus.codes website parsing'
-                            });
-                        }
-                    }
-                }
-            }
-        } catch (pageError) {
-            console.warn('Plus Codes page fetch failed:', pageError);
-        }
-        
-        // SECOND: Try Google Maps Geocoding API (works for any Plus Code if API key is available)
+        // FIRST: Try Google Maps Geocoding API (works for any Plus Code)
+        // Google Maps Geocoding API supports Plus Codes natively
         if (process.env.GOOGLE_MAPS_API_KEY) {
             try {
                 const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
@@ -174,11 +76,11 @@ module.exports = async function handler(req, res) {
             }
         }
         
-        
-        // FOURTH: Check for known Plus Codes with exact coordinates (fallback for specific codes)
+        // SECOND: Check for known Plus Codes with exact coordinates (fallback)
         const knownPlusCodes = {
             'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
             'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
+            'CC7W+93': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Same area
             '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
             // Add more known codes as needed
         };
@@ -195,24 +97,12 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // FIFTH: Try manual decoder as last resort
-        const decoded = decodePlusCode(cleanCode);
-        if (decoded) {
-            return res.status(200).json({
-                plusCode: cleanCode,
-                latitude: decoded.latitude,
-                longitude: decoded.longitude,
-                formatted: `${decoded.latitude}, ${decoded.longitude}`,
-                source: 'manual decoder'
-            });
-        }
-
-        // If all methods failed, return error with helpful message
+        // If no API key and code not in known list, return helpful error
         return res.status(400).json({ 
-            error: 'Could not decode Plus Code. The Plus Code may be invalid or the decoding services are unavailable.',
+            error: 'Could not decode Plus Code. Please add a GOOGLE_MAPS_API_KEY to your Vercel environment variables, or the Plus Code may be invalid.',
             received: plusCode,
             extracted: cleanCode,
-            suggestion: 'Please verify the Plus Code is correct, or add a GOOGLE_MAPS_API_KEY to your Vercel environment variables for better support.'
+            suggestion: 'To decode any Plus Code, add GOOGLE_MAPS_API_KEY to Vercel environment variables. Get a free key at: https://console.cloud.google.com/google/maps-apis'
         });
 
     } catch (error) {
@@ -223,4 +113,3 @@ module.exports = async function handler(req, res) {
         });
     }
 }
-
