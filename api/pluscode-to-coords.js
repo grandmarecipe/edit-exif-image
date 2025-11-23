@@ -111,10 +111,11 @@ module.exports = async function handler(req, res) {
             });
         }
         
-        // Check for known Plus Codes in Agadir area
+        // Check for known Plus Codes with exact coordinates
         const knownPlusCodes = {
             'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
-            'CC7W+3M': { latitude: 30.4200, longitude: -9.6000, location: 'Agadir, Morocco' }, // Approximate
+            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Exact from plus.codes
+            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Full code
             // Add more known codes as needed
         };
         
@@ -125,23 +126,20 @@ module.exports = async function handler(req, res) {
                 latitude: coords.latitude,
                 longitude: coords.longitude,
                 formatted: `${coords.latitude}, ${coords.longitude}`,
-                location: coords.location
+                location: coords.location,
+                source: 'known coordinates'
             });
         }
         
-        // For Plus Codes starting with CC (Agadir area), provide approximate coordinates
-        if (cleanCode.startsWith('CC') && cleanCode.includes('+')) {
-            // Agadir area reference: approximately 30.4, -9.6
-            // This is a simplified approach - for production, use a proper Plus Code decoder
-            return res.status(200).json({
-                plusCode: cleanCode,
-                latitude: 30.4200,
-                longitude: -9.6000,
-                formatted: '30.4200, -9.6000',
-                location: 'Agadir, Morocco (approximate)',
-                note: 'This is an approximate location. For precise coordinates, use a full Plus Code decoder.'
-            });
-        }
+        // If we have the full code (8+ characters before +), try to decode it
+        // For short codes, we need the reference location which makes it harder
+        // Return error asking for full code or use API
+        return res.status(400).json({ 
+            error: 'Could not decode Plus Code accurately. Please provide the full Plus Code (8+ characters) or use a Plus Code decoder API.',
+            received: plusCode,
+            extracted: cleanCode,
+            suggestion: 'For accurate coordinates, use the full Plus Code format or add a Google Maps API key to your Vercel environment variables.'
+        });
 
         // Use Google Geocoding API to convert Plus Code to coordinates
         const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
