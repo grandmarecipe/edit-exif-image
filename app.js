@@ -636,15 +636,6 @@ document.getElementById('cropBtn').addEventListener('click', async () => {
             return;
         }
 
-        // Get current image URL
-        let imageUrl;
-        try {
-            imageUrl = await getCurrentImageUrl();
-        } catch (error) {
-            showNotification('Please load an image first (from URL or file upload)', 'error');
-            return;
-        }
-
         showNotification('Cropping image...', 'info');
 
         // Prepare crop options
@@ -654,16 +645,30 @@ document.getElementById('cropBtn').addEventListener('click', async () => {
         if (cropLeft > 0) cropOptions.left = cropLeft;
         if (cropRight > 0) cropOptions.right = cropRight;
 
+        // Prepare request body - use imageData if we have it, otherwise try URL
+        const requestBody = { cropOptions: cropOptions };
+        
+        if (currentImageData && currentImageData.startsWith('data:')) {
+            // Use base64 data directly
+            requestBody.imageData = currentImageData;
+        } else {
+            // Try to get URL
+            try {
+                const imageUrl = await getCurrentImageUrl();
+                requestBody.imageUrl = imageUrl;
+            } catch (error) {
+                showNotification('Please load an image first (from URL or file upload)', 'error');
+                return;
+            }
+        }
+
         // Call crop API
         const response = await fetch('/api/crop-image', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                imageUrl: imageUrl,
-                cropOptions: cropOptions
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {

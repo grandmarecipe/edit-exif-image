@@ -20,11 +20,11 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { imageUrl, cropOptions } = req.body;
+        const { imageUrl, imageData, cropOptions } = req.body;
 
         // Validate required fields
-        if (!imageUrl) {
-            return res.status(400).json({ error: 'imageUrl is required' });
+        if (!imageUrl && !imageData) {
+            return res.status(400).json({ error: 'Either imageUrl or imageData (base64) is required' });
         }
 
         if (!cropOptions || typeof cropOptions !== 'object') {
@@ -40,16 +40,30 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'At least one crop value (top, bottom, left, or right) must be greater than 0' });
         }
 
-        // Fetch the image
-        console.log('Fetching image from:', imageUrl);
-        const imageResponse = await fetch(imageUrl);
-        
-        if (!imageResponse.ok) {
-            return res.status(400).json({ error: `Failed to fetch image: ${imageResponse.statusText}` });
-        }
+        let buffer;
 
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const buffer = Buffer.from(imageBuffer);
+        // Handle base64 image data
+        if (imageData) {
+            try {
+                // Remove data URL prefix if present
+                const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+                buffer = Buffer.from(base64Data, 'base64');
+                console.log('Using base64 image data');
+            } catch (e) {
+                return res.status(400).json({ error: 'Invalid base64 image data' });
+            }
+        } else {
+            // Fetch the image from URL
+            console.log('Fetching image from:', imageUrl);
+            const imageResponse = await fetch(imageUrl);
+            
+            if (!imageResponse.ok) {
+                return res.status(400).json({ error: `Failed to fetch image: ${imageResponse.statusText}` });
+            }
+
+            const imageBuffer = await imageResponse.arrayBuffer();
+            buffer = Buffer.from(imageBuffer);
+        }
 
         // Get image metadata to calculate crop dimensions
         const metadata = await sharp(buffer).metadata();
