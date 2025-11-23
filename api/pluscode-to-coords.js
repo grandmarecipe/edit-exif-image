@@ -141,24 +141,26 @@ module.exports = async function handler(req, res) {
             suggestion: 'For accurate coordinates, use the full Plus Code format or add a Google Maps API key to your Vercel environment variables.'
         });
 
-        // Use Google Geocoding API to convert Plus Code to coordinates
+        // FIRST: Try to use Google Plus Codes API for accurate coordinates
         const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
         
         try {
             const response = await fetch(geocodeUrl);
-            const data = await response.json();
-            
-            if (data.plus_code && data.plus_code.geometry) {
-                const { lat, lng } = data.plus_code.geometry.location;
-                return res.status(200).json({
-                    plusCode: cleanCode,
-                    latitude: lat,
-                    longitude: lng,
-                    formatted: `${lat}, ${lng}`
-                });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.plus_code && data.plus_code.geometry && data.plus_code.geometry.location) {
+                    const { lat, lng } = data.plus_code.geometry.location;
+                    return res.status(200).json({
+                        plusCode: cleanCode,
+                        latitude: lat,
+                        longitude: lng,
+                        formatted: `${lat}, ${lng}`,
+                        source: 'plus.codes API'
+                    });
+                }
             }
         } catch (apiError) {
-            console.warn('Plus Codes API failed, trying alternative method:', apiError);
+            console.warn('Plus Codes API failed, trying known codes:', apiError);
         }
 
         // Alternative: Use OpenLocationCode library approach
