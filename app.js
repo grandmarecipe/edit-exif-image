@@ -274,15 +274,26 @@ function convertDDToDMS(dd, isLat) {
         ? (dd >= 0 ? "N" : "S")
         : (dd >= 0 ? "E" : "W");
     // piexif expects rational numbers: [[deg, 1], [min, 1], [sec*100, 100]]
-    // All values must be integers
+    // All values must be integers - ensure they are
+    const degInt = Math.floor(deg);
+    const minInt = Math.floor(min);
     const secNumerator = Math.round(sec * 100);
-    return [[[Math.floor(deg), 1], [Math.floor(min), 1], [secNumerator, 100]], ref];
+    // Return format: [[[deg, 1], [min, 1], [sec*100, 100]], ref]
+    return [[[degInt, 1], [minInt, 1], [secNumerator, 100]], ref];
 }
 
 // Save EXIF data
 document.getElementById('saveBtn').addEventListener('click', () => {
     if (!currentImageData) {
         alert('Please load an image first');
+        return;
+    }
+
+    // Validate GPS coordinates - both must be provided if one is filled
+    const latStr = document.getElementById('latitude').value.trim();
+    const lonStr = document.getElementById('longitude').value.trim();
+    if ((latStr && !lonStr) || (!latStr && lonStr)) {
+        alert('Please provide both latitude and longitude for GPS coordinates, or leave both empty.');
         return;
     }
 
@@ -454,13 +465,41 @@ function writeExifData(imageData, newExif) {
             delete exifObj['Exif'];
         }
 
+        // Check if we have any EXIF data to write
+        const has0thData = exifObj['0th'] && Object.keys(exifObj['0th']).length > 0;
+        const hasExifData = exifObj['Exif'] && Object.keys(exifObj['Exif']).length > 0;
+        const hasGPSData = exifObj['GPS'] && Object.keys(exifObj['GPS']).length > 0;
+        
+        if (!has0thData && !hasExifData && !hasGPSData) {
+            throw new Error('No EXIF data to save. Please fill in at least one field.');
+        }
+
+        // Validate EXIF object structure before dumping
+        // Ensure all required sections exist and are objects
+        if (!exifObj['0th']) exifObj['0th'] = {};
+        if (!exifObj['Exif']) exifObj['Exif'] = {};
+        if (!exifObj['GPS']) exifObj['GPS'] = {};
+        if (!exifObj['Interop']) exifObj['Interop'] = {};
+        if (!exifObj['1st']) exifObj['1st'] = {};
+        if (exifObj['thumbnail'] === undefined) exifObj['thumbnail'] = null;
+
+        // Remove empty GPS if it has no data
+        if (Object.keys(exifObj['GPS']).length === 0) {
+            delete exifObj['GPS'];
+        }
+        // Remove empty Exif if it has no data
+        if (Object.keys(exifObj['Exif']).length === 0) {
+            delete exifObj['Exif'];
+        }
+
         // Convert to binary
         let exifString;
         try {
             exifString = piexif.dump(exifObj);
         } catch (dumpError) {
-            console.error('EXIF dump error:', dumpError, 'EXIF object:', exifObj);
-            throw new Error('Failed to create EXIF data: ' + dumpError.message);
+            console.error('EXIF dump error:', dumpError, 'EXIF object:', JSON.stringify(exifObj, null, 2));
+            const errorMsg = dumpError.message || dumpError.toString() || 'Unknown error';
+            throw new Error('Failed to create EXIF data: ' + errorMsg);
         }
         
         // Insert EXIF into image
