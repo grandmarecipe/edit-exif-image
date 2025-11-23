@@ -491,14 +491,6 @@ function writeExifData(imageData, newExif) {
             }
         }
 
-        // Clean up empty sections
-        if (Object.keys(exifObj['GPS']).length === 0) {
-            delete exifObj['GPS'];
-        }
-        if (Object.keys(exifObj['Exif']).length === 0) {
-            delete exifObj['Exif'];
-        }
-
         // Check if we have any EXIF data to write
         const has0thData = exifObj['0th'] && Object.keys(exifObj['0th']).length > 0;
         const hasExifData = exifObj['Exif'] && Object.keys(exifObj['Exif']).length > 0;
@@ -508,43 +500,8 @@ function writeExifData(imageData, newExif) {
             throw new Error('No EXIF data to save. Please fill in at least one field.');
         }
 
-
-        // Validate EXIF object structure before dumping
-        // Ensure all required sections exist and are objects
-        if (!exifObj['0th']) exifObj['0th'] = {};
-        if (!exifObj['Exif']) exifObj['Exif'] = {};
-        if (!exifObj['GPS']) exifObj['GPS'] = {};
-        if (!exifObj['Interop']) exifObj['Interop'] = {};
-        if (!exifObj['1st']) exifObj['1st'] = {};
-        if (exifObj['thumbnail'] === undefined) exifObj['thumbnail'] = null;
-
-        // Remove empty GPS if it has no data
-        if (Object.keys(exifObj['GPS']).length === 0) {
-            delete exifObj['GPS'];
-        }
-        // Remove empty Exif if it has no data
-        if (Object.keys(exifObj['Exif']).length === 0) {
-            delete exifObj['Exif'];
-        }
-
-        // Validate EXIF structure before dumping
-        // Remove any sections that are completely empty
-        if (Object.keys(exifObj['0th']).length === 0) {
-            delete exifObj['0th'];
-        }
-        if (Object.keys(exifObj['Exif']).length === 0) {
-            delete exifObj['Exif'];
-        }
-        if (Object.keys(exifObj['GPS']).length === 0) {
-            delete exifObj['GPS'];
-        }
-        
-        // Ensure we have at least one section with data
-        if (!exifObj['0th'] && !exifObj['Exif'] && !exifObj['GPS']) {
-            throw new Error('No EXIF data to save. Please fill in at least one field.');
-        }
-        
-        // Re-add required structure for piexif
+        // Ensure all required sections exist (like in working script)
+        // Don't delete empty sections - piexif expects the structure
         if (!exifObj['0th']) exifObj['0th'] = {};
         if (!exifObj['Exif']) exifObj['Exif'] = {};
         if (!exifObj['GPS']) exifObj['GPS'] = {};
