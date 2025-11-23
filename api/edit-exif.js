@@ -1,6 +1,7 @@
 const piexif = require('piexifjs');
 
 // Convert Decimal Degrees to DMS (piexif format)
+// Uses higher precision to avoid rounding errors
 function convertDDToDMS(dd, isLat) {
     const abs = Math.abs(dd);
     const deg = Math.floor(abs);
@@ -10,10 +11,13 @@ function convertDDToDMS(dd, isLat) {
     const ref = isLat 
         ? (dd >= 0 ? "N" : "S")
         : (dd >= 0 ? "E" : "W");
-    const degInt = Math.floor(deg);
-    const minInt = Math.floor(min);
-    const secNumerator = Math.round(sec * 100);
-    return [[[degInt, 1], [minInt, 1], [secNumerator, 100]], ref];
+    
+    // Use higher precision: multiply by 10000 instead of 100 to preserve more decimal places
+    // This matches the precision used in EXIF standard
+    const secNumerator = Math.round(sec * 10000);
+    const secDenominator = 10000;
+    
+    return [[[deg, 1], [min, 1], [secNumerator, secDenominator]], ref];
 }
 
 module.exports = async function handler(req, res) {
