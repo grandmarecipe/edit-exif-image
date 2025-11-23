@@ -434,30 +434,59 @@ function writeExifData(imageData, newExif) {
             throw new Error('Image must be in JPEG format. Please ensure the image was properly loaded.');
         }
 
-        // Load existing EXIF if available
-        let exifObj = {};
-        try {
-            exifObj = piexif.load(binaryString);
-        } catch (e) {
-            // No existing EXIF, start fresh
-            exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
-        }
-
-        // Merge new EXIF data with validation
+        // Start with a fresh EXIF object to avoid issues with existing corrupted data
+        // Only load existing EXIF if we need to preserve something, otherwise start fresh
+        let exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
+        
+        // Only merge new EXIF data - don't try to preserve old data that might be corrupted
         if (newExif['0th']) {
-            exifObj['0th'] = exifObj['0th'] || {};
-            Object.assign(exifObj['0th'], newExif['0th']);
+            exifObj['0th'] = {};
+            // Copy only the fields we're setting
+            for (const key in newExif['0th']) {
+                const value = newExif['0th'][key];
+                if (value !== undefined && value !== null) {
+                    exifObj['0th'][key] = typeof value === 'string' ? value : String(value);
+                }
+            }
         }
+        
         if (newExif['Exif']) {
-            exifObj['Exif'] = exifObj['Exif'] || {};
-            Object.assign(exifObj['Exif'], newExif['Exif']);
+            exifObj['Exif'] = {};
+            for (const key in newExif['Exif']) {
+                const value = newExif['Exif'][key];
+                if (value !== undefined && value !== null) {
+                    exifObj['Exif'][key] = typeof value === 'string' ? value : String(value);
+                }
+            }
         }
+        
         if (newExif['GPS']) {
-            exifObj['GPS'] = exifObj['GPS'] || {};
-            // Validate GPS structure before assigning
+            exifObj['GPS'] = {};
             const gpsData = newExif['GPS'];
+            // Only copy GPS data if it's complete and valid
             if (gpsData[piexif.GPSIFD.GPSLatitude] && gpsData[piexif.GPSIFD.GPSLongitude]) {
-                Object.assign(exifObj['GPS'], gpsData);
+                // Copy GPS fields one by one to ensure correct types
+                if (Array.isArray(gpsData[piexif.GPSIFD.GPSLatitude])) {
+                    exifObj['GPS'][piexif.GPSIFD.GPSLatitude] = gpsData[piexif.GPSIFD.GPSLatitude];
+                }
+                if (typeof gpsData[piexif.GPSIFD.GPSLatitudeRef] === 'string') {
+                    exifObj['GPS'][piexif.GPSIFD.GPSLatitudeRef] = gpsData[piexif.GPSIFD.GPSLatitudeRef];
+                }
+                if (Array.isArray(gpsData[piexif.GPSIFD.GPSLongitude])) {
+                    exifObj['GPS'][piexif.GPSIFD.GPSLongitude] = gpsData[piexif.GPSIFD.GPSLongitude];
+                }
+                if (typeof gpsData[piexif.GPSIFD.GPSLongitudeRef] === 'string') {
+                    exifObj['GPS'][piexif.GPSIFD.GPSLongitudeRef] = gpsData[piexif.GPSIFD.GPSLongitudeRef];
+                }
+                if (Array.isArray(gpsData[piexif.GPSIFD.GPSAltitude])) {
+                    exifObj['GPS'][piexif.GPSIFD.GPSAltitude] = [
+                        Math.round(gpsData[piexif.GPSIFD.GPSAltitude][0]),
+                        Math.round(gpsData[piexif.GPSIFD.GPSAltitude][1])
+                    ];
+                }
+                if (gpsData[piexif.GPSIFD.GPSAltitudeRef] === 0 || gpsData[piexif.GPSIFD.GPSAltitudeRef] === 1) {
+                    exifObj['GPS'][piexif.GPSIFD.GPSAltitudeRef] = gpsData[piexif.GPSIFD.GPSAltitudeRef];
+                }
             }
         }
 
@@ -478,46 +507,6 @@ function writeExifData(imageData, newExif) {
             throw new Error('No EXIF data to save. Please fill in at least one field.');
         }
 
-        // Clean and validate EXIF data - ensure correct types
-        // Remove any undefined or null values that might cause issues
-        function cleanExifSection(section) {
-            if (!section || typeof section !== 'object') return {};
-            const cleaned = {};
-            for (const key in section) {
-                const value = section[key];
-                if (value !== undefined && value !== null) {
-                    // For GPS coordinates, ensure they're arrays
-                    if (key === piexif.GPSIFD.GPSLatitude || key === piexif.GPSIFD.GPSLongitude) {
-                        if (Array.isArray(value) && value.length === 3) {
-                            cleaned[key] = value.map(v => Array.isArray(v) ? v : [v, 1]);
-                        }
-                    } else if (key === piexif.GPSIFD.GPSAltitude) {
-                        if (Array.isArray(value) && value.length === 2) {
-                            cleaned[key] = [Math.round(value[0]), Math.round(value[1])];
-                        }
-                    } else if (key === piexif.GPSIFD.GPSAltitudeRef) {
-                        cleaned[key] = value === 0 || value === 1 ? value : 0;
-                    } else if (key === piexif.GPSIFD.GPSLatitudeRef || key === piexif.GPSIFD.GPSLongitudeRef) {
-                        cleaned[key] = String(value);
-                    } else {
-                        // For text fields, ensure they're strings
-                        cleaned[key] = typeof value === 'string' ? value : String(value);
-                    }
-                }
-            }
-            return cleaned;
-        }
-
-        // Clean all sections
-        if (exifObj['0th']) {
-            exifObj['0th'] = cleanExifSection(exifObj['0th']);
-        }
-        if (exifObj['Exif']) {
-            exifObj['Exif'] = cleanExifSection(exifObj['Exif']);
-        }
-        if (exifObj['GPS']) {
-            exifObj['GPS'] = cleanExifSection(exifObj['GPS']);
-        }
 
         // Validate EXIF object structure before dumping
         // Ensure all required sections exist and are objects
