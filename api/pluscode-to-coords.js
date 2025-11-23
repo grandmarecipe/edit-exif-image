@@ -111,29 +111,47 @@ module.exports = async function handler(req, res) {
             });
         }
         
-        // FIRST: Try to use Google Plus Codes API for accurate coordinates
+        // FIRST: Try fetching from plus.codes website and parsing coordinates (most reliable)
         try {
-            const geocodeUrl = `https://plus.codes/api?address=${encodeURIComponent(cleanCode)}`;
-            const response = await fetch(geocodeUrl);
+            const plusCodesPageUrl = `https://plus.codes/${cleanCode}`;
+            const pageResponse = await fetch(plusCodesPageUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
             
-            if (response.ok) {
-                const data = await response.json();
-                if (data.plus_code && data.plus_code.geometry && data.plus_code.geometry.location) {
-                    const { lat, lng } = data.plus_code.geometry.location;
-                    return res.status(200).json({
-                        plusCode: cleanCode,
-                        latitude: lat,
-                        longitude: lng,
-                        formatted: `${lat}, ${lng}`,
-                        source: 'plus.codes API'
-                    });
+            if (pageResponse.ok) {
+                const pageText = await pageResponse.text();
+                // Look for coordinate patterns in the page HTML/JSON
+                const coordPatterns = [
+                    /"lat":\s*([\d.]+),\s*"lng":\s*([\d.-]+)/,
+                    /latitude["\s:]+([\d.]+).*longitude["\s:]+([\d.-]+)/i,
+                    /coordinates["\s:]+([\d.]+),\s*([\d.-]+)/i,
+                    /(\d+\.\d+),\s*(-?\d+\.\d+)/  // Simple lat,lng pattern
+                ];
+                
+                for (const pattern of coordPatterns) {
+                    const match = pageText.match(pattern);
+                    if (match) {
+                        const lat = parseFloat(match[1]);
+                        const lng = parseFloat(match[2]);
+                        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                            return res.status(200).json({
+                                plusCode: cleanCode,
+                                latitude: lat,
+                                longitude: lng,
+                                formatted: `${lat}, ${lng}`,
+                                source: 'plus.codes website parsing'
+                            });
+                        }
+                    }
                 }
             }
-        } catch (apiError) {
-            console.warn('Plus Codes API failed, trying Google Maps API:', apiError);
+        } catch (pageError) {
+            console.warn('Plus Codes page fetch failed:', pageError);
         }
         
-        // SECOND: Try Google Maps Geocoding API (works for any Plus Code)
+        // SECOND: Try Google Maps Geocoding API (works for any Plus Code if API key is available)
         if (process.env.GOOGLE_MAPS_API_KEY) {
             try {
                 const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
@@ -156,40 +174,6 @@ module.exports = async function handler(req, res) {
             }
         }
         
-        // THIRD: Try fetching from plus.codes website and parsing coordinates
-        try {
-            const plusCodesPageUrl = `https://plus.codes/${cleanCode}`;
-            const pageResponse = await fetch(plusCodesPageUrl);
-            
-            if (pageResponse.ok) {
-                const pageText = await pageResponse.text();
-                // Look for coordinate patterns in the page HTML
-                const coordPatterns = [
-                    /"lat":\s*([\d.]+),\s*"lng":\s*([\d.-]+)/,
-                    /latitude["\s:]+([\d.]+).*longitude["\s:]+([\d.-]+)/i,
-                    /coordinates["\s:]+([\d.]+),\s*([\d.-]+)/i
-                ];
-                
-                for (const pattern of coordPatterns) {
-                    const match = pageText.match(pattern);
-                    if (match) {
-                        const lat = parseFloat(match[1]);
-                        const lng = parseFloat(match[2]);
-                        if (!isNaN(lat) && !isNaN(lng)) {
-                            return res.status(200).json({
-                                plusCode: cleanCode,
-                                latitude: lat,
-                                longitude: lng,
-                                formatted: `${lat}, ${lng}`,
-                                source: 'plus.codes website parsing'
-                            });
-                        }
-                    }
-                }
-            }
-        } catch (pageError) {
-            console.warn('Plus Codes page fetch failed:', pageError);
-        }
         
         // FOURTH: Check for known Plus Codes with exact coordinates (fallback for specific codes)
         const knownPlusCodes = {
