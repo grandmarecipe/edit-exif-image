@@ -52,58 +52,57 @@ module.exports = async function handler(req, res) {
             });
         }
         
-        // FIRST: Try Google Maps Geocoding API (works for any Plus Code)
-        // Google Maps Geocoding API supports Plus Codes natively
-        if (process.env.GOOGLE_MAPS_API_KEY) {
-            try {
-                const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-                const mapsResponse = await fetch(mapsUrl);
-                const mapsData = await mapsResponse.json();
-                
-                if (mapsData.results && mapsData.results.length > 0) {
-                    const location = mapsData.results[0].geometry.location;
-                    return res.status(200).json({
-                        plusCode: cleanCode,
-                        latitude: location.lat,
-                        longitude: location.lng,
-                        formatted: `${location.lat}, ${location.lng}`,
-                        address: mapsData.results[0].formatted_address,
-                        source: 'Google Maps Geocoding API'
-                    });
-                }
-            } catch (mapsError) {
-                console.warn('Google Maps API failed:', mapsError);
-            }
-        }
-        
-        // SECOND: Check for known Plus Codes with exact coordinates (fallback)
-        const knownPlusCodes = {
-            'CC2C+8X': { latitude: 30.40082090, longitude: -9.57759430, location: 'Amseel Cars, Agadir' },
-            'CC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
-            'CC7W+93': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' }, // Same area
-            '8C2GCC7W+3M': { latitude: 30.412687, longitude: -9.553313, location: 'Agadir, Morocco' },
-            // Add more known codes as needed
-        };
-        
-        if (knownPlusCodes[cleanCode]) {
-            const coords = knownPlusCodes[cleanCode];
-            return res.status(200).json({
-                plusCode: cleanCode,
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                formatted: `${coords.latitude}, ${coords.longitude}`,
-                location: coords.location,
-                source: 'known coordinates'
+        // Use Google Maps Geocoding API to fetch coordinates for any Plus Code
+        // This is the only method - no hardcoded codes, always fetch from Google
+        if (!process.env.GOOGLE_MAPS_API_KEY) {
+            return res.status(400).json({ 
+                error: 'GOOGLE_MAPS_API_KEY is required. Please add it to your Vercel environment variables.',
+                received: plusCode,
+                extracted: cleanCode,
+                suggestion: 'Add GOOGLE_MAPS_API_KEY to Vercel environment variables. Get a free key at: https://console.cloud.google.com/google/maps-apis'
             });
         }
 
-        // If no API key and code not in known list, return helpful error
-        return res.status(400).json({ 
-            error: 'Could not decode Plus Code. Please add a GOOGLE_MAPS_API_KEY to your Vercel environment variables, or the Plus Code may be invalid.',
-            received: plusCode,
-            extracted: cleanCode,
-            suggestion: 'To decode any Plus Code, add GOOGLE_MAPS_API_KEY to Vercel environment variables. Get a free key at: https://console.cloud.google.com/google/maps-apis'
-        });
+        try {
+            const mapsUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(cleanCode)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+            const mapsResponse = await fetch(mapsUrl);
+            const mapsData = await mapsResponse.json();
+            
+            if (mapsData.status === 'OK' && mapsData.results && mapsData.results.length > 0) {
+                const location = mapsData.results[0].geometry.location;
+                return res.status(200).json({
+                    plusCode: cleanCode,
+                    latitude: location.lat,
+                    longitude: location.lng,
+                    formatted: `${location.lat}, ${location.lng}`,
+                    address: mapsData.results[0].formatted_address,
+                    source: 'Google Maps Geocoding API'
+                });
+            } else if (mapsData.status === 'ZERO_RESULTS') {
+                return res.status(400).json({ 
+                    error: 'Plus Code not found. The Plus Code may be invalid.',
+                    received: plusCode,
+                    extracted: cleanCode,
+                    googleStatus: mapsData.status
+                });
+            } else {
+                return res.status(400).json({ 
+                    error: `Google Maps API error: ${mapsData.status}`,
+                    received: plusCode,
+                    extracted: cleanCode,
+                    googleStatus: mapsData.status,
+                    errorMessage: mapsData.error_message || 'Unknown error'
+                });
+            }
+        } catch (mapsError) {
+            console.error('Google Maps API error:', mapsError);
+            return res.status(500).json({ 
+                error: 'Failed to fetch coordinates from Google Maps API',
+                received: plusCode,
+                extracted: cleanCode,
+                message: mapsError.message
+            });
+        }
 
     } catch (error) {
         console.error('Error converting Plus Code:', error);
