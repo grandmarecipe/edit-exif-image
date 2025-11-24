@@ -332,17 +332,32 @@ function collectFormData() {
     // Description - preserve Unicode characters
     const description = document.getElementById('description').value.trim();
     if (description) {
+        const descStr = preserveUnicode(description);
         exif['0th'] = exif['0th'] || {};
-        // Preserve Unicode characters (French accents, etc.)
-        exif['0th'][piexif.ImageIFD.ImageDescription] = preserveUnicode(description);
+        // Store in ImageDescription
+        exif['0th'][piexif.ImageIFD.ImageDescription] = descStr;
+        // Also store in UserComment for UTF-8 support
+        exif['Exif'] = exif['Exif'] || {};
+        const utf8Bytes = new TextEncoder().encode(descStr);
+        const userComment = new Uint8Array([0x01, 0x00, ...utf8Bytes]);
+        exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
     }
 
-    // Keywords - use DocumentName field which is more widely supported
+    // Keywords - use UserComment for UTF-8 support (special characters like à, é, etc.)
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
+        const keywordsStr = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
+        // Use UserComment for UTF-8 encoding support
+        // Format: [0x01, 0x00] + UTF-8 bytes (0x01 = UTF-8 encoding identifier)
+        exif['Exif'] = exif['Exif'] || {};
+        // Create UserComment with UTF-8 encoding
+        const utf8Bytes = new TextEncoder().encode("Keywords: " + keywordsStr);
+        const userComment = new Uint8Array([0x01, 0x00, ...utf8Bytes]);
+        // Convert to binary string for piexifjs
+        exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
+        // Also store in DocumentName (may show ?? but UserComment will have correct value)
         exif['0th'] = exif['0th'] || {};
-        // Preserve Unicode characters in keywords
-        exif['0th'][piexif.ImageIFD.DocumentName] = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
+        exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
     }
 
     // GPS Coordinates - only set if both lat and lon are provided
@@ -460,7 +475,7 @@ function writeExifData(imageData, newExif) {
 
         // Directly assign values like in the working script - don't copy through loops
         if (newExif['0th']) {
-            // Direct assignment for each field with UTF-8 support
+            // Direct assignment for each field
             if (newExif['0th'][piexif.ImageIFD.ImageDescription]) {
                 exifObj['0th'][piexif.ImageIFD.ImageDescription] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.ImageDescription]);
             }
@@ -484,6 +499,10 @@ function writeExifData(imageData, newExif) {
         if (newExif['Exif']) {
             if (newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]) {
                 exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = String(newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]);
+            }
+            // UserComment for UTF-8 support (keywords, description)
+            if (newExif['Exif'][piexif.ExifIFD.UserComment]) {
+                exifObj['Exif'][piexif.ExifIFD.UserComment] = newExif['Exif'][piexif.ExifIFD.UserComment];
             }
         }
         

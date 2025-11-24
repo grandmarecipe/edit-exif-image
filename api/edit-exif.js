@@ -75,36 +75,53 @@ module.exports = async function handler(req, res) {
             exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         }
 
-        // Helper function to ensure proper UTF-8 string encoding
-        // piexifjs handles UTF-8 internally, but we need to ensure strings are properly formatted
-        function ensureUTF8String(str) {
+        // Helper function to encode UTF-8 strings properly for EXIF UserComment
+        // piexifjs has issues with UTF-8 in standard fields, so we use UserComment for UTF-8 text
+        // UserComment format: [encoding byte][null byte][text in specified encoding]
+        // Encoding: 0x01 = UTF-8, 0x00 = ASCII
+        function encodeUTF8String(str) {
             if (typeof str !== 'string') {
                 str = String(str);
             }
-            // Ensure the string is properly encoded - JavaScript strings are already Unicode
-            // piexifjs will handle UTF-8 encoding internally
-            return str;
+            // Convert string to UTF-8 bytes
+            const utf8Bytes = Buffer.from(str, 'utf8');
+            // Create UserComment with UTF-8 encoding identifier
+            const userComment = Buffer.concat([
+                Buffer.from([0x01, 0x00]), // UTF-8 encoding identifier (0x01) + null terminator (0x00)
+                utf8Bytes
+            ]);
+            // Convert to binary string format that piexifjs expects
+            return userComment.toString('binary');
         }
 
         // Apply EXIF modifications with UTF-8 support
         if (exifData.description) {
-            exifObj["0th"][piexif.ImageIFD.ImageDescription] = ensureUTF8String(exifData.description);
+            // Try standard field first, but also use UserComment for UTF-8 support
+            const desc = String(exifData.description);
+            exifObj["0th"][piexif.ImageIFD.ImageDescription] = desc;
+            // Also store in UserComment for better UTF-8 support
+            exifObj["Exif"][piexif.ExifIFD.UserComment] = encodeUTF8String(desc);
         }
 
         if (exifData.keywords) {
-            exifObj["0th"][piexif.ImageIFD.DocumentName] = ensureUTF8String(exifData.keywords);
+            // Use UserComment for keywords to ensure UTF-8 support
+            // Format: "Keywords: " + keywords
+            const keywords = String(exifData.keywords);
+            exifObj["Exif"][piexif.ExifIFD.UserComment] = encodeUTF8String("Keywords: " + keywords);
+            // Also try DocumentName (may show ?? but UserComment will have correct value)
+            exifObj["0th"][piexif.ImageIFD.DocumentName] = keywords;
         }
 
         if (exifData.make) {
-            exifObj["0th"][piexif.ImageIFD.Make] = ensureUTF8String(exifData.make);
+            exifObj["0th"][piexif.ImageIFD.Make] = String(exifData.make);
         }
 
         if (exifData.model) {
-            exifObj["0th"][piexif.ImageIFD.Model] = ensureUTF8String(exifData.model);
+            exifObj["0th"][piexif.ImageIFD.Model] = String(exifData.model);
         }
 
         if (exifData.copyright) {
-            exifObj["0th"][piexif.ImageIFD.Copyright] = ensureUTF8String(exifData.copyright);
+            exifObj["0th"][piexif.ImageIFD.Copyright] = String(exifData.copyright);
         }
 
         // Date/Time
