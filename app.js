@@ -343,21 +343,50 @@ function collectFormData() {
         exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
     }
 
-    // Keywords - use UserComment for UTF-8 support (special characters like à, é, etc.)
+    // Keywords - use multiple fields for UTF-8 support (special characters like à, é, etc.)
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
         const keywordsStr = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
-        // Use UserComment for UTF-8 encoding support
-        // Format: [0x01, 0x00] + UTF-8 bytes (0x01 = UTF-8 encoding identifier)
+        
+        // 1. UserComment for UTF-8 encoding support (most reliable)
         exif['Exif'] = exif['Exif'] || {};
-        // Create UserComment with UTF-8 encoding
         const utf8Bytes = new TextEncoder().encode("Keywords: " + keywordsStr);
         const userComment = new Uint8Array([0x01, 0x00, ...utf8Bytes]);
-        // Convert to binary string for piexifjs
         exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
-        // Also store in DocumentName (may show ?? but UserComment will have correct value)
+        
+        // 2. Try DocumentName with UTF-8 bytes
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
+        try {
+            // Convert to UTF-8 bytes and then to binary string
+            const utf8Array = new TextEncoder().encode(keywordsStr);
+            // Convert Uint8Array to binary string
+            let binaryStr = '';
+            for (let i = 0; i < utf8Array.length; i++) {
+                binaryStr += String.fromCharCode(utf8Array[i]);
+            }
+            exif['0th'][piexif.ImageIFD.DocumentName] = binaryStr;
+        } catch (e) {
+            // Fallback to regular string
+            exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
+        }
+        
+        // 3. Try XPKeywords (Windows-specific UTF-16LE encoding)
+        try {
+            // Convert to UTF-16LE with BOM
+            const utf16Bytes = new Uint8Array(keywordsStr.length * 2 + 4);
+            utf16Bytes[0] = 0xFF; // BOM byte 1
+            utf16Bytes[1] = 0xFE; // BOM byte 2 (UTF-16LE)
+            for (let i = 0; i < keywordsStr.length; i++) {
+                const charCode = keywordsStr.charCodeAt(i);
+                utf16Bytes[i * 2 + 2] = charCode & 0xFF;
+                utf16Bytes[i * 2 + 3] = (charCode >> 8) & 0xFF;
+            }
+            utf16Bytes[keywordsStr.length * 2 + 2] = 0x00; // Null terminator
+            utf16Bytes[keywordsStr.length * 2 + 3] = 0x00;
+            exif['0th'][piexif.ImageIFD.XPKeywords] = String.fromCharCode(...utf16Bytes);
+        } catch (e) {
+            console.log('XPKeywords encoding failed:', e);
+        }
     }
 
     // GPS Coordinates - only set if both lat and lon are provided
@@ -492,7 +521,12 @@ function writeExifData(imageData, newExif) {
                 exifObj['0th'][piexif.ImageIFD.DateTime] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DateTime]);
             }
             if (newExif['0th'][piexif.ImageIFD.DocumentName]) {
-                exifObj['0th'][piexif.ImageIFD.DocumentName] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DocumentName]);
+                // DocumentName might already be encoded as binary string, preserve it
+                exifObj['0th'][piexif.ImageIFD.DocumentName] = newExif['0th'][piexif.ImageIFD.DocumentName];
+            }
+            if (newExif['0th'][piexif.ImageIFD.XPKeywords]) {
+                // XPKeywords is already encoded as UTF-16LE binary string
+                exifObj['0th'][piexif.ImageIFD.XPKeywords] = newExif['0th'][piexif.ImageIFD.XPKeywords];
             }
         }
         

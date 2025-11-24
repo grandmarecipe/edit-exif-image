@@ -104,12 +104,39 @@ module.exports = async function handler(req, res) {
         }
 
         if (exifData.keywords) {
-            // Use UserComment for keywords to ensure UTF-8 support
-            // Format: "Keywords: " + keywords
             const keywords = String(exifData.keywords);
+            
+            // piexifjs has a known limitation: it doesn't properly support UTF-8 in standard text fields
+            // The library treats strings as binary and doesn't encode them as UTF-8
+            // Solution: Use UserComment which explicitly supports UTF-8 encoding
+            
+            // 1. UserComment with proper UTF-8 encoding (this is the correct way)
             exifObj["Exif"][piexif.ExifIFD.UserComment] = encodeUTF8String("Keywords: " + keywords);
-            // Also try DocumentName (may show ?? but UserComment will have correct value)
+            
+            // 2. For DocumentName, we need to work around piexifjs limitation
+            // The issue is that piexifjs will re-encode any string we give it
+            // We'll store it as-is and hope some viewers can handle it
+            // Note: This will likely show ?? in most viewers, but UserComment will be correct
             exifObj["0th"][piexif.ImageIFD.DocumentName] = keywords;
+            
+            // 3. Also try storing in XPKeywords with UTF-16LE (Windows-specific but better support)
+            // XPKeywords uses UTF-16LE encoding which some viewers handle better
+            try {
+                // Convert to UTF-16LE: each character becomes 2 bytes (little-endian)
+                const utf16le = Buffer.allocUnsafe(keywords.length * 2 + 4);
+                utf16le[0] = 0xFF; // UTF-16LE BOM byte 1
+                utf16le[1] = 0xFE; // UTF-16LE BOM byte 2
+                for (let i = 0; i < keywords.length; i++) {
+                    const charCode = keywords.charCodeAt(i);
+                    utf16le[i * 2 + 2] = charCode & 0xFF;        // Low byte
+                    utf16le[i * 2 + 3] = (charCode >> 8) & 0xFF; // High byte
+                }
+                utf16le[keywords.length * 2 + 2] = 0x00; // Null terminator
+                utf16le[keywords.length * 2 + 3] = 0x00;
+                exifObj["0th"][piexif.ImageIFD.XPKeywords] = utf16le.toString('binary');
+            } catch (e) {
+                console.log('XPKeywords encoding failed:', e);
+            }
         }
 
         if (exifData.make) {
