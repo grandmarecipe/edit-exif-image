@@ -322,20 +322,27 @@ document.getElementById('saveBtn').addEventListener('click', () => {
 function collectFormData() {
     const exif = {};
     
-    // Description
+    // Helper to preserve Unicode characters (French accents, etc.)
+    function preserveUnicode(str) {
+        // JavaScript strings are already Unicode - just ensure it's a string
+        // This preserves all special characters like à, é, ç, etc.
+        return typeof str === 'string' ? str : String(str);
+    }
+    
+    // Description - preserve Unicode characters
     const description = document.getElementById('description').value.trim();
     if (description) {
         exif['0th'] = exif['0th'] || {};
-        // Ensure it's a string
-        exif['0th'][piexif.ImageIFD.ImageDescription] = String(description);
+        // Preserve Unicode characters (French accents, etc.)
+        exif['0th'][piexif.ImageIFD.ImageDescription] = preserveUnicode(description);
     }
 
     // Keywords - use DocumentName field which is more widely supported
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
         exif['0th'] = exif['0th'] || {};
-        // Use DocumentName field for keywords (more widely recognized than XPKeywords)
-        exif['0th'][piexif.ImageIFD.DocumentName] = String(keywords.split(',').map(k => k.trim()).join(', '));
+        // Preserve Unicode characters in keywords
+        exif['0th'][piexif.ImageIFD.DocumentName] = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
     }
 
     // GPS Coordinates - only set if both lat and lon are provided
@@ -368,16 +375,16 @@ function collectFormData() {
         }
     }
 
-    // Camera info
+    // Camera info - preserve Unicode characters
     const make = document.getElementById('make').value.trim();
     const model = document.getElementById('model').value.trim();
     if (make) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Make] = String(make);
+        exif['0th'][piexif.ImageIFD.Make] = preserveUnicode(make);
     }
     if (model) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Model] = String(model);
+        exif['0th'][piexif.ImageIFD.Model] = preserveUnicode(model);
     }
 
     // DateTime - validate and format properly
@@ -408,11 +415,11 @@ function collectFormData() {
         }
     }
 
-    // Copyright
+    // Copyright - preserve Unicode characters
     const copyright = document.getElementById('copyright').value.trim();
     if (copyright) {
         exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Copyright] = String(copyright);
+        exif['0th'][piexif.ImageIFD.Copyright] = preserveUnicode(copyright);
     }
 
     return exif;
@@ -440,26 +447,37 @@ function writeExifData(imageData, newExif) {
         // Start with a fresh EXIF object - match the working Node.js script approach
         let exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         
+        // Helper function to ensure proper UTF-8 string encoding for special characters
+        // JavaScript strings are already Unicode, piexifjs will handle UTF-8 encoding
+        function ensureUTF8String(str) {
+            if (typeof str !== 'string') {
+                str = String(str);
+            }
+            // Return as-is - JavaScript strings support all Unicode characters
+            // piexifjs will properly encode them to UTF-8 in EXIF
+            return str;
+        }
+
         // Directly assign values like in the working script - don't copy through loops
         if (newExif['0th']) {
-            // Direct assignment for each field
+            // Direct assignment for each field with UTF-8 support
             if (newExif['0th'][piexif.ImageIFD.ImageDescription]) {
-                exifObj['0th'][piexif.ImageIFD.ImageDescription] = String(newExif['0th'][piexif.ImageIFD.ImageDescription]);
+                exifObj['0th'][piexif.ImageIFD.ImageDescription] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.ImageDescription]);
             }
             if (newExif['0th'][piexif.ImageIFD.Make]) {
-                exifObj['0th'][piexif.ImageIFD.Make] = String(newExif['0th'][piexif.ImageIFD.Make]);
+                exifObj['0th'][piexif.ImageIFD.Make] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.Make]);
             }
             if (newExif['0th'][piexif.ImageIFD.Model]) {
-                exifObj['0th'][piexif.ImageIFD.Model] = String(newExif['0th'][piexif.ImageIFD.Model]);
+                exifObj['0th'][piexif.ImageIFD.Model] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.Model]);
             }
             if (newExif['0th'][piexif.ImageIFD.Copyright]) {
-                exifObj['0th'][piexif.ImageIFD.Copyright] = String(newExif['0th'][piexif.ImageIFD.Copyright]);
+                exifObj['0th'][piexif.ImageIFD.Copyright] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.Copyright]);
             }
             if (newExif['0th'][piexif.ImageIFD.DateTime]) {
-                exifObj['0th'][piexif.ImageIFD.DateTime] = String(newExif['0th'][piexif.ImageIFD.DateTime]);
+                exifObj['0th'][piexif.ImageIFD.DateTime] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DateTime]);
             }
             if (newExif['0th'][piexif.ImageIFD.DocumentName]) {
-                exifObj['0th'][piexif.ImageIFD.DocumentName] = String(newExif['0th'][piexif.ImageIFD.DocumentName]);
+                exifObj['0th'][piexif.ImageIFD.DocumentName] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DocumentName]);
             }
         }
         

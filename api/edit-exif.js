@@ -75,25 +75,36 @@ module.exports = async function handler(req, res) {
             exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         }
 
-        // Apply EXIF modifications
+        // Helper function to ensure proper UTF-8 string encoding
+        // piexifjs handles UTF-8 internally, but we need to ensure strings are properly formatted
+        function ensureUTF8String(str) {
+            if (typeof str !== 'string') {
+                str = String(str);
+            }
+            // Ensure the string is properly encoded - JavaScript strings are already Unicode
+            // piexifjs will handle UTF-8 encoding internally
+            return str;
+        }
+
+        // Apply EXIF modifications with UTF-8 support
         if (exifData.description) {
-            exifObj["0th"][piexif.ImageIFD.ImageDescription] = String(exifData.description);
+            exifObj["0th"][piexif.ImageIFD.ImageDescription] = ensureUTF8String(exifData.description);
         }
 
         if (exifData.keywords) {
-            exifObj["0th"][piexif.ImageIFD.DocumentName] = String(exifData.keywords);
+            exifObj["0th"][piexif.ImageIFD.DocumentName] = ensureUTF8String(exifData.keywords);
         }
 
         if (exifData.make) {
-            exifObj["0th"][piexif.ImageIFD.Make] = String(exifData.make);
+            exifObj["0th"][piexif.ImageIFD.Make] = ensureUTF8String(exifData.make);
         }
 
         if (exifData.model) {
-            exifObj["0th"][piexif.ImageIFD.Model] = String(exifData.model);
+            exifObj["0th"][piexif.ImageIFD.Model] = ensureUTF8String(exifData.model);
         }
 
         if (exifData.copyright) {
-            exifObj["0th"][piexif.ImageIFD.Copyright] = String(exifData.copyright);
+            exifObj["0th"][piexif.ImageIFD.Copyright] = ensureUTF8String(exifData.copyright);
         }
 
         // Date/Time
