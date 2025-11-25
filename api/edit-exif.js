@@ -1,6 +1,7 @@
 const piexif = require('piexifjs');
 const exifr = require('exifr');
 const sharp = require('sharp');
+const ExifTool = require('exiftool-vendored').ExifTool;
 
 /**
  * Convert Decimal Degrees to DMS (Degrees, Minutes, Seconds) for EXIF GPS
@@ -84,87 +85,71 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Only JPEG images are supported' });
         }
 
-        // Use Sharp for XMP/IPTC metadata (handles UTF-8 properly)
-        // Sharp's withMetadata supports: exif, iptc, xmp, tiff, and custom fields
-        // We'll use the exifr library to properly write XMP/IPTC, then use Sharp to embed it
-        let sharpImage = sharp(imageBuffer);
-
-        // Prepare metadata object for Sharp
-        // Sharp supports: exif, iptc, xmp as separate objects
-        const metadataUpdates = {
-            exif: {},
-            iptc: {},
-            xmp: {}
-        };
+        // Prepare XMP/IPTC metadata tags for ExifTool
+        // ExifTool properly handles UTF-8 encoding for XMP and IPTC
+        const exifToolTags = {};
 
         // Handle new format (preferred)
         if (hasNewFormat) {
             // Title -> XMP dc:title and IPTC ObjectName
             if (title) {
                 const titleStr = String(title);
-                metadataUpdates.xmp['dc:title'] = titleStr;
-                metadataUpdates.iptc['ObjectName'] = titleStr;
+                exifToolTags['XMP:Title'] = titleStr;
+                exifToolTags['IPTC:ObjectName'] = titleStr;
             }
 
             // Description -> XMP dc:description and IPTC Caption/Abstract
             if (description) {
                 const descStr = String(description);
-                metadataUpdates.xmp['dc:description'] = descStr;
-                metadataUpdates.iptc['Caption/Abstract'] = descStr;
+                exifToolTags['XMP:Description'] = descStr;
+                exifToolTags['IPTC:Caption-Abstract'] = descStr;
             }
 
             // Keywords -> XMP dc:subject and IPTC Keywords
             if (keywords && Array.isArray(keywords) && keywords.length > 0) {
                 const keywordsArray = keywords.map(k => String(k).trim()).filter(k => k.length > 0);
-                metadataUpdates.xmp['dc:subject'] = keywordsArray;
-                metadataUpdates.iptc['Keywords'] = keywordsArray;
+                exifToolTags['XMP:Subject'] = keywordsArray;
+                exifToolTags['IPTC:Keywords'] = keywordsArray;
             } else if (keywords && typeof keywords === 'string') {
                 // Support comma-separated string
                 const keywordsArray = keywords.split(',').map(k => String(k).trim()).filter(k => k.length > 0);
                 if (keywordsArray.length > 0) {
-                    metadataUpdates.xmp['dc:subject'] = keywordsArray;
-                    metadataUpdates.iptc['Keywords'] = keywordsArray;
+                    exifToolTags['XMP:Subject'] = keywordsArray;
+                    exifToolTags['IPTC:Keywords'] = keywordsArray;
                 }
             }
 
             // City -> XMP photoshop:City and IPTC City
             if (city) {
                 const cityStr = String(city);
-                metadataUpdates.xmp['photoshop:City'] = cityStr;
-                metadataUpdates.iptc['City'] = cityStr;
+                exifToolTags['XMP:City'] = cityStr;
+                exifToolTags['IPTC:City'] = cityStr;
             }
 
             // Country -> XMP photoshop:Country and IPTC Country/PrimaryLocationName
             if (country) {
                 const countryStr = String(country);
-                metadataUpdates.xmp['photoshop:Country'] = countryStr;
-                metadataUpdates.iptc['Country/PrimaryLocationName'] = countryStr;
+                exifToolTags['XMP:Country'] = countryStr;
+                exifToolTags['IPTC:Country-PrimaryLocationName'] = countryStr;
             }
         }
 
         // Handle legacy format (backward compatibility)
         if (hasLegacyFormat) {
             if (exifData.description && !description) {
-                metadataUpdates.description = String(exifData.description);
+                const descStr = String(exifData.description);
+                exifToolTags['XMP:Description'] = descStr;
+                exifToolTags['IPTC:Caption-Abstract'] = descStr;
             }
             if (exifData.keywords && !keywords) {
                 const kw = typeof exifData.keywords === 'string' 
-                    ? exifData.keywords.split(',').map(k => k.trim())
-                    : Array.isArray(exifData.keywords) ? exifData.keywords : [];
-                metadataUpdates.keywords = kw;
+                    ? exifData.keywords.split(',').map(k => k.trim()).filter(k => k.length > 0)
+                    : Array.isArray(exifData.keywords) ? exifData.keywords.map(k => String(k).trim()).filter(k => k.length > 0) : [];
+                if (kw.length > 0) {
+                    exifToolTags['XMP:Subject'] = kw;
+                    exifToolTags['IPTC:Keywords'] = kw;
+                }
             }
-        }
-
-        // Apply XMP/IPTC metadata using Sharp
-        // Sharp handles UTF-8 encoding automatically for XMP and IPTC
-        // Filter out empty objects to avoid issues
-        const filteredMetadata = {};
-        if (Object.keys(metadataUpdates.exif).length > 0) filteredMetadata.exif = metadataUpdates.exif;
-        if (Object.keys(metadataUpdates.iptc).length > 0) filteredMetadata.iptc = metadataUpdates.iptc;
-        if (Object.keys(metadataUpdates.xmp).length > 0) filteredMetadata.xmp = metadataUpdates.xmp;
-        
-        if (Object.keys(filteredMetadata).length > 0) {
-            sharpImage = sharpImage.withMetadata(filteredMetadata);
         }
 
         // For EXIF GPS, we need to use piexifjs (Sharp doesn't support all EXIF GPS fields well)
@@ -225,17 +210,43 @@ module.exports = async function handler(req, res) {
         const imageWithExif = piexif.insert(exifString, imageString);
         const imageBufferWithExif = Buffer.from(imageWithExif, 'binary');
 
-        // Now apply XMP/IPTC using Sharp on the EXIF-updated image
-        // This ensures both EXIF GPS and XMP/IPTC text are present
-        let finalImageBuffer;
-        if (Object.keys(metadataUpdates).length > 0) {
-            finalImageBuffer = await sharp(imageBufferWithExif)
-                .withMetadata(metadataUpdates)
-                .jpeg({ quality: 95 })
-                .toBuffer();
-        } else {
-            // No XMP/IPTC updates, just return the EXIF-updated image
-            finalImageBuffer = imageBufferWithExif;
+        // Apply XMP/IPTC metadata using ExifTool (proper UTF-8 support)
+        let finalImageBuffer = imageBufferWithExif;
+        if (Object.keys(exifToolTags).length > 0) {
+            // Write image to temp file, process with ExifTool, then read back
+            // ExifTool needs file paths, so we'll use a temporary approach
+            const fs = require('fs');
+            const path = require('path');
+            const os = require('os');
+            
+            // Create temp file
+            const tempInput = path.join(os.tmpdir(), `exif-input-${Date.now()}.jpg`);
+            const tempOutput = path.join(os.tmpdir(), `exif-output-${Date.now()}.jpg`);
+            
+            try {
+                // Write input image
+                fs.writeFileSync(tempInput, imageBufferWithExif);
+                
+                // Use ExifTool to write XMP/IPTC metadata
+                const exiftool = new ExifTool();
+                await exiftool.write(tempInput, exifToolTags, ['-overwrite_original']);
+                await exiftool.end();
+                
+                // Read the modified image
+                finalImageBuffer = fs.readFileSync(tempInput);
+                
+                // Clean up temp files
+                try {
+                    fs.unlinkSync(tempInput);
+                    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+                } catch (cleanupError) {
+                    console.warn('Failed to cleanup temp files:', cleanupError);
+                }
+            } catch (exifToolError) {
+                console.error('ExifTool error:', exifToolError);
+                // Fallback: return image with EXIF GPS only
+                finalImageBuffer = imageBufferWithExif;
+            }
         }
 
         // Return the modified image
