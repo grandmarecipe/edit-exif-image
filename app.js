@@ -254,23 +254,6 @@ function populateForm(exifData) {
     if (exifData.GPSAltitude) {
         document.getElementById('altitude').value = exifData.GPSAltitude;
     }
-
-    // Camera info
-    document.getElementById('make').value = exifData.Make || '';
-    document.getElementById('model').value = exifData.Model || '';
-
-    // DateTime
-    if (exifData.DateTimeOriginal || exifData.DateTime) {
-        const dateStr = exifData.DateTimeOriginal || exifData.DateTime;
-        const date = new Date(dateStr.replace(/(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3'));
-        if (!isNaN(date.getTime())) {
-            document.getElementById('datetime').value = 
-                date.toISOString().slice(0, 16);
-        }
-    }
-
-    // Copyright
-    document.getElementById('copyright').value = exifData.Copyright || '';
 }
 
 // Convert DMS (Degrees, Minutes, Seconds) to Decimal Degrees
