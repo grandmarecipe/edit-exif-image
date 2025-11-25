@@ -87,6 +87,7 @@ module.exports = async function handler(req, res) {
 
         // Prepare XMP/IPTC metadata tags for ExifTool
         // ExifTool properly handles UTF-8 encoding for XMP and IPTC
+        // Use correct tag names with dashes for XMP namespace prefixes
         const exifToolTags = {};
 
         // Handle new format (preferred)
@@ -94,43 +95,49 @@ module.exports = async function handler(req, res) {
             // Title -> XMP dc:title and IPTC ObjectName
             if (title) {
                 const titleStr = String(title);
-                exifToolTags['XMP:Title'] = titleStr;
+                exifToolTags['XMP-dc:Title'] = titleStr;
                 exifToolTags['IPTC:ObjectName'] = titleStr;
+                console.log('Setting title:', titleStr);
             }
 
             // Description -> XMP dc:description and IPTC Caption/Abstract
             if (description) {
                 const descStr = String(description);
-                exifToolTags['XMP:Description'] = descStr;
+                exifToolTags['XMP-dc:Description'] = descStr;
                 exifToolTags['IPTC:Caption-Abstract'] = descStr;
+                console.log('Setting description:', descStr);
             }
 
             // Keywords -> XMP dc:subject and IPTC Keywords
             if (keywords && Array.isArray(keywords) && keywords.length > 0) {
                 const keywordsArray = keywords.map(k => String(k).trim()).filter(k => k.length > 0);
-                exifToolTags['XMP:Subject'] = keywordsArray;
+                exifToolTags['XMP-dc:Subject'] = keywordsArray;
                 exifToolTags['IPTC:Keywords'] = keywordsArray;
+                console.log('Setting keywords:', keywordsArray);
             } else if (keywords && typeof keywords === 'string') {
                 // Support comma-separated string
                 const keywordsArray = keywords.split(',').map(k => String(k).trim()).filter(k => k.length > 0);
                 if (keywordsArray.length > 0) {
-                    exifToolTags['XMP:Subject'] = keywordsArray;
+                    exifToolTags['XMP-dc:Subject'] = keywordsArray;
                     exifToolTags['IPTC:Keywords'] = keywordsArray;
+                    console.log('Setting keywords:', keywordsArray);
                 }
             }
 
             // City -> XMP photoshop:City and IPTC City
             if (city) {
                 const cityStr = String(city);
-                exifToolTags['XMP:City'] = cityStr;
+                exifToolTags['XMP-photoshop:City'] = cityStr;
                 exifToolTags['IPTC:City'] = cityStr;
+                console.log('Setting city:', cityStr);
             }
 
             // Country -> XMP photoshop:Country and IPTC Country/PrimaryLocationName
             if (country) {
                 const countryStr = String(country);
-                exifToolTags['XMP:Country'] = countryStr;
+                exifToolTags['XMP-photoshop:Country'] = countryStr;
                 exifToolTags['IPTC:Country-PrimaryLocationName'] = countryStr;
+                console.log('Setting country:', countryStr);
             }
         }
 
@@ -138,19 +145,23 @@ module.exports = async function handler(req, res) {
         if (hasLegacyFormat) {
             if (exifData.description && !description) {
                 const descStr = String(exifData.description);
-                exifToolTags['XMP:Description'] = descStr;
+                exifToolTags['XMP-dc:Description'] = descStr;
                 exifToolTags['IPTC:Caption-Abstract'] = descStr;
+                console.log('Setting description (legacy):', descStr);
             }
             if (exifData.keywords && !keywords) {
                 const kw = typeof exifData.keywords === 'string' 
                     ? exifData.keywords.split(',').map(k => k.trim()).filter(k => k.length > 0)
                     : Array.isArray(exifData.keywords) ? exifData.keywords.map(k => String(k).trim()).filter(k => k.length > 0) : [];
                 if (kw.length > 0) {
-                    exifToolTags['XMP:Subject'] = kw;
+                    exifToolTags['XMP-dc:Subject'] = kw;
                     exifToolTags['IPTC:Keywords'] = kw;
+                    console.log('Setting keywords (legacy):', kw);
                 }
             }
         }
+
+        console.log('ExifTool tags to write:', JSON.stringify(exifToolTags, null, 2));
 
         // For EXIF GPS, we need to use piexifjs (Sharp doesn't support all EXIF GPS fields well)
         // Convert image to binary string for piexifjs
@@ -211,42 +222,86 @@ module.exports = async function handler(req, res) {
         const imageBufferWithExif = Buffer.from(imageWithExif, 'binary');
 
         // Apply XMP/IPTC metadata using ExifTool (proper UTF-8 support)
+        // Processing order:
+        // 1. Start from uploaded buffer
+        // 2. Add EXIF GPS with piexifjs (already done above)
+        // 3. Save that buffer to temp file
+        // 4. Call exiftool.write on that temp file for XMP/IPTC
+        // 5. Read the modified file back and send that buffer as response
+        // 6. Do NOT modify the image again after exiftool
+        
         let finalImageBuffer = imageBufferWithExif;
         if (Object.keys(exifToolTags).length > 0) {
-            // Write image to temp file, process with ExifTool, then read back
-            // ExifTool needs file paths, so we'll use a temporary approach
+            console.log('Starting ExifTool processing for XMP/IPTC metadata...');
             const fs = require('fs');
             const path = require('path');
             const os = require('os');
             
-            // Create temp file
-            const tempInput = path.join(os.tmpdir(), `exif-input-${Date.now()}.jpg`);
-            const tempOutput = path.join(os.tmpdir(), `exif-output-${Date.now()}.jpg`);
+            // Create temp file with unique name
+            const tempInput = path.join(os.tmpdir(), `exif-input-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`);
             
             try {
-                // Write input image
+                // Step 3: Write image with EXIF GPS to temp file
+                console.log('Writing image with EXIF GPS to temp file:', tempInput);
                 fs.writeFileSync(tempInput, imageBufferWithExif);
+                const fileSizeBefore = fs.statSync(tempInput).size;
+                console.log('Temp file size before ExifTool:', fileSizeBefore, 'bytes');
                 
-                // Use ExifTool to write XMP/IPTC metadata
+                // Step 4: Use ExifTool to write XMP/IPTC metadata
+                console.log('Calling ExifTool.write with tags:', Object.keys(exifToolTags));
                 const exiftool = new ExifTool();
+                
+                // Write metadata with overwrite_original flag
                 await exiftool.write(tempInput, exifToolTags, ['-overwrite_original']);
+                console.log('ExifTool.write completed successfully');
+                
+                // Properly close ExifTool
                 await exiftool.end();
+                console.log('ExifTool instance closed');
                 
-                // Read the modified image
+                // Step 5: Read the modified image back
+                console.log('Reading modified image from temp file');
                 finalImageBuffer = fs.readFileSync(tempInput);
+                const fileSizeAfter = fs.statSync(tempInput).size;
+                console.log('Temp file size after ExifTool:', fileSizeAfter, 'bytes');
+                console.log('Final buffer size:', finalImageBuffer.length, 'bytes');
                 
-                // Clean up temp files
+                // Verify we got the modified buffer, not the original
+                if (finalImageBuffer.length === imageBufferWithExif.length && 
+                    finalImageBuffer.equals(imageBufferWithExif)) {
+                    console.warn('WARNING: Final buffer appears identical to input buffer. ExifTool may not have written metadata.');
+                } else {
+                    console.log('SUCCESS: Final buffer differs from input, ExifTool modifications detected');
+                }
+                
+                // Clean up temp file
                 try {
                     fs.unlinkSync(tempInput);
-                    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+                    console.log('Temp file cleaned up');
                 } catch (cleanupError) {
-                    console.warn('Failed to cleanup temp files:', cleanupError);
+                    console.warn('Failed to cleanup temp file:', cleanupError);
                 }
             } catch (exifToolError) {
-                console.error('ExifTool error:', exifToolError);
+                console.error('ExifTool error details:', {
+                    message: exifToolError.message,
+                    stack: exifToolError.stack,
+                    name: exifToolError.name
+                });
                 // Fallback: return image with EXIF GPS only
+                console.warn('Falling back to image with EXIF GPS only (no XMP/IPTC)');
                 finalImageBuffer = imageBufferWithExif;
+                
+                // Clean up temp file on error
+                try {
+                    if (fs.existsSync(tempInput)) {
+                        fs.unlinkSync(tempInput);
+                    }
+                } catch (cleanupError) {
+                    console.warn('Failed to cleanup temp file after error:', cleanupError);
+                }
             }
+        } else {
+            console.log('No XMP/IPTC tags to write, skipping ExifTool processing');
         }
 
         // Return the modified image
