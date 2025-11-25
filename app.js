@@ -212,17 +212,36 @@ function displayExifData(exifData) {
     exifDisplay.classList.remove('hidden');
 }
 
-// Populate form with EXIF data
+// Populate form with metadata (EXIF, XMP, IPTC)
 function populateForm(exifData) {
-    // Description (ImageDescription or UserComment)
-    document.getElementById('description').value = 
-        exifData.ImageDescription || exifData.UserComment || '';
+    // Title (XMP dc:title or IPTC ObjectName)
+    document.getElementById('title').value = 
+        exifData.title || exifData.ObjectName || '';
 
-    // Keywords (DocumentName, XPKeywords, or Subject)
-    const keywords = exifData.DocumentName || exifData.XPKeywords || exifData.Subject || '';
-    document.getElementById('keywords').value = Array.isArray(keywords) 
-        ? keywords.join(', ') 
-        : keywords;
+    // Description (XMP dc:description, IPTC Caption/Abstract, or EXIF ImageDescription)
+    document.getElementById('description').value = 
+        exifData.description || exifData.CaptionAbstract || exifData.ImageDescription || '';
+
+    // Keywords (XMP dc:subject, IPTC Keywords, or EXIF DocumentName)
+    let keywords = '';
+    if (exifData.keywords && Array.isArray(exifData.keywords)) {
+        keywords = exifData.keywords.join(', ');
+    } else if (exifData.keywords && typeof exifData.keywords === 'string') {
+        keywords = exifData.keywords;
+    } else if (exifData.DocumentName) {
+        keywords = Array.isArray(exifData.DocumentName) 
+            ? exifData.DocumentName.join(', ') 
+            : exifData.DocumentName;
+    }
+    document.getElementById('keywords').value = keywords;
+    
+    // City (XMP photoshop:City or IPTC City)
+    document.getElementById('city').value = 
+        exifData.city || exifData.City || '';
+    
+    // Country (XMP photoshop:Country or IPTC Country)
+    document.getElementById('country').value = 
+        exifData.country || exifData.Country || '';
 
     // GPS Coordinates
     if (exifData.GPSLatitude && exifData.GPSLongitude) {
@@ -282,8 +301,8 @@ function convertDDToDMS(dd, isLat) {
     return [[[degInt, 1], [minInt, 1], [secNumerator, 100]], ref];
 }
 
-// Save EXIF data
-document.getElementById('saveBtn').addEventListener('click', () => {
+// Save metadata (EXIF, XMP, IPTC) via API
+document.getElementById('saveBtn').addEventListener('click', async () => {
     if (!currentImageData) {
         alert('Please load an image first');
         return;
@@ -298,155 +317,136 @@ document.getElementById('saveBtn').addEventListener('click', () => {
     }
 
     try {
-        const editedExif = collectFormData();
-        const newImageData = writeExifData(currentImageData, editedExif);
+        showNotification('Saving metadata...', 'info');
         
-        // Update preview
-        displayImage(newImageData);
-        currentImageData = newImageData;
+        // Collect form data in new format
+        const metadata = collectFormData();
         
-        // Re-read and display updated EXIF
-        readExifData(newImageData);
+        // Prepare request body
+        const requestBody = {
+            ...metadata
+        };
         
-        // Trigger download
-        downloadImage(newImageData);
+        // Add image data (base64) or URL
+        if (currentImageData && currentImageData.startsWith('data:')) {
+            requestBody.imageData = currentImageData;
+        } else {
+            const imageUrl = document.getElementById('imageUrl').value.trim();
+            if (imageUrl) {
+                requestBody.imageUrl = imageUrl;
+            } else {
+                throw new Error('No image source available');
+            }
+        }
         
-        alert('EXIF data saved! Image download started.');
+        // Call API endpoint
+        const response = await fetch('/api/edit-exif', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to save metadata');
+        }
+
+        // Get the modified image as blob
+        const blob = await response.blob();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const newImageData = e.target.result;
+            
+            // Update preview
+            displayImage(newImageData);
+            currentImageData = newImageData;
+            
+            // Re-read and display updated metadata
+            readExifData(newImageData);
+            
+            // Trigger download
+            downloadImage(newImageData);
+            
+            showNotification('Metadata saved successfully! Image download started.', 'success');
+        };
+        reader.readAsDataURL(blob);
+        
     } catch (error) {
-        alert('Error saving EXIF data: ' + error.message);
-        console.error(error);
+        console.error('Error saving metadata:', error);
+        showNotification('Error saving metadata: ' + error.message, 'error');
+        alert('Error saving metadata: ' + error.message);
     }
 });
 
-// Collect form data
+// Collect form data in new format for API (XMP/IPTC/EXIF)
 function collectFormData() {
-    const exif = {};
+    const metadata = {};
     
     // Helper to preserve Unicode characters (French accents, etc.)
     function preserveUnicode(str) {
-        // JavaScript strings are already Unicode - just ensure it's a string
-        // This preserves all special characters like à, é, ç, etc.
         return typeof str === 'string' ? str : String(str);
     }
     
-    // Description - preserve Unicode characters
+    // Title -> XMP dc:title and IPTC ObjectName
+    const title = document.getElementById('title').value.trim();
+    if (title) {
+        metadata.title = preserveUnicode(title);
+    }
+    
+    // Description -> XMP dc:description and IPTC Caption/Abstract
     const description = document.getElementById('description').value.trim();
     if (description) {
-        const descStr = preserveUnicode(description);
-        exif['0th'] = exif['0th'] || {};
-        // Store in ImageDescription (may show ?? for special chars, but that's a piexifjs limitation)
-        exif['0th'][piexif.ImageIFD.ImageDescription] = descStr;
+        metadata.description = preserveUnicode(description);
     }
 
-    // Keywords - use UserComment for UTF-8 support (special characters like à, é, etc.)
+    // Keywords -> XMP dc:subject and IPTC Keywords (as array)
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
-        const keywordsStr = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
-        
-        // Use UserComment for UTF-8 encoding support
-        // Format: [0x01, 0x00] + UTF-8 bytes (0x01 = UTF-8 encoding identifier)
-        exif['Exif'] = exif['Exif'] || {};
-        try {
-            const commentText = "Keywords: " + keywordsStr;
-            const utf8Bytes = new TextEncoder().encode(commentText);
-            
-            // Build UserComment binary string byte by byte to avoid spread operator issues
-            // Start with UTF-8 encoding identifier
-            let userCommentStr = '\x01\x00';
-            // Append UTF-8 bytes
-            for (let i = 0; i < utf8Bytes.length; i++) {
-                userCommentStr += String.fromCharCode(utf8Bytes[i]);
-            }
-            exif['Exif'][piexif.ExifIFD.UserComment] = userCommentStr;
-        } catch (e) {
-            console.error('UserComment encoding failed:', e);
-            // Fallback: store as regular string (will lose special chars but won't crash)
-            exif['Exif'][piexif.ExifIFD.UserComment] = "Keywords: " + keywordsStr;
+        // Split by comma and clean up
+        const keywordsArray = keywords.split(',')
+            .map(k => preserveUnicode(k.trim()))
+            .filter(k => k.length > 0);
+        if (keywordsArray.length > 0) {
+            metadata.keywords = keywordsArray;
         }
-        
-        // Also store in DocumentName (may show ?? but UserComment will have correct value)
-        exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
+    }
+    
+    // City -> XMP photoshop:City and IPTC City
+    const city = document.getElementById('city').value.trim();
+    if (city) {
+        metadata.city = preserveUnicode(city);
+    }
+    
+    // Country -> XMP photoshop:Country and IPTC Country
+    const country = document.getElementById('country').value.trim();
+    if (country) {
+        metadata.country = preserveUnicode(country);
     }
 
-    // GPS Coordinates - only set if both lat and lon are provided
+    // GPS Coordinates -> EXIF GPS tags (latitude, longitude, altitude)
     const latStr = document.getElementById('latitude').value.trim();
     const lonStr = document.getElementById('longitude').value.trim();
-    const lat = parseFloat(latStr);
-    const lon = parseFloat(lonStr);
     
-    // Only add GPS if both coordinates are provided and valid
-    if (latStr && lonStr && !isNaN(lat) && !isNaN(lon) && 
-        lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
-        exif['GPS'] = exif['GPS'] || {};
-        const latResult = convertDDToDMS(lat, true);
-        const lonResult = convertDDToDMS(lon, false);
+    if (latStr && lonStr) {
+        const lat = parseFloat(latStr);
+        const lon = parseFloat(lonStr);
         
-        // Ensure GPS coordinates are in correct format - validate the structure
-        if (Array.isArray(latResult[0]) && Array.isArray(lonResult[0])) {
-            exif['GPS'][piexif.GPSIFD.GPSLatitude] = latResult[0];
-            exif['GPS'][piexif.GPSIFD.GPSLatitudeRef] = String(latResult[1]); // Must be string
-            exif['GPS'][piexif.GPSIFD.GPSLongitude] = lonResult[0];
-            exif['GPS'][piexif.GPSIFD.GPSLongitudeRef] = String(lonResult[1]); // Must be string
+        if (!isNaN(lat) && !isNaN(lon) && 
+            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+            metadata.latitude = lat;
+            metadata.longitude = lon;
             
+            // Altitude (optional)
             const altitude = parseFloat(document.getElementById('altitude').value);
             if (!isNaN(altitude) && altitude !== 0) {
-                // Altitude must be rational number [numerator, denominator] as integers
-                const altNum = Math.round(Math.abs(altitude) * 100);
-                exif['GPS'][piexif.GPSIFD.GPSAltitude] = [altNum, 100];
-                exif['GPS'][piexif.GPSIFD.GPSAltitudeRef] = altitude >= 0 ? 0 : 1; // Must be integer 0 or 1
+                metadata.altitude = altitude;
             }
         }
     }
 
-    // Camera info - preserve Unicode characters
-    const make = document.getElementById('make').value.trim();
-    const model = document.getElementById('model').value.trim();
-    if (make) {
-        exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Make] = preserveUnicode(make);
-    }
-    if (model) {
-        exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Model] = preserveUnicode(model);
-    }
-
-    // DateTime - validate and format properly
-    const datetime = document.getElementById('datetime').value.trim();
-    if (datetime && datetime !== '--:--' && !datetime.includes('--:--')) {
-        try {
-            const date = new Date(datetime);
-            const year = date.getFullYear();
-            // Validate year is reasonable (1900-2100)
-            if (!isNaN(date.getTime()) && year >= 1900 && year <= 2100) {
-                // Format: YYYY:MM:DD HH:MM:SS (EXIF standard format)
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                const seconds = String(date.getSeconds()).padStart(2, '0');
-                const dateStr = `${year}:${month}:${day} ${hours}:${minutes}:${seconds}`;
-                
-                exif['0th'] = exif['0th'] || {};
-                exif['0th'][piexif.ImageIFD.DateTime] = dateStr;
-                exif['Exif'] = exif['Exif'] || {};
-                exif['Exif'][piexif.ExifIFD.DateTimeOriginal] = dateStr;
-            } else {
-                console.warn('Date year out of valid range (1900-2100):', year);
-            }
-        } catch (e) {
-            console.warn('Invalid date format, skipping DateTime:', datetime, e);
-        }
-    }
-
-    // Copyright - preserve Unicode characters
-    const copyright = document.getElementById('copyright').value.trim();
-    if (copyright) {
-        exif['0th'] = exif['0th'] || {};
-        exif['0th'][piexif.ImageIFD.Copyright] = preserveUnicode(copyright);
-    }
-
-    return exif;
+    return metadata;
 }
 
 // Write EXIF data to image
