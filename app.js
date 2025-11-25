@@ -334,59 +334,39 @@ function collectFormData() {
     if (description) {
         const descStr = preserveUnicode(description);
         exif['0th'] = exif['0th'] || {};
-        // Store in ImageDescription
+        // Store in ImageDescription (may show ?? for special chars, but that's a piexifjs limitation)
         exif['0th'][piexif.ImageIFD.ImageDescription] = descStr;
-        // Also store in UserComment for UTF-8 support
-        exif['Exif'] = exif['Exif'] || {};
-        const utf8Bytes = new TextEncoder().encode(descStr);
-        const userComment = new Uint8Array([0x01, 0x00, ...utf8Bytes]);
-        exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
     }
 
-    // Keywords - use multiple fields for UTF-8 support (special characters like à, é, etc.)
+    // Keywords - use UserComment for UTF-8 support (special characters like à, é, etc.)
     const keywords = document.getElementById('keywords').value.trim();
     if (keywords) {
         const keywordsStr = preserveUnicode(keywords.split(',').map(k => k.trim()).join(', '));
         
-        // 1. UserComment for UTF-8 encoding support (most reliable)
+        // Use UserComment for UTF-8 encoding support
+        // Format: [0x01, 0x00] + UTF-8 bytes (0x01 = UTF-8 encoding identifier)
         exif['Exif'] = exif['Exif'] || {};
-        const utf8Bytes = new TextEncoder().encode("Keywords: " + keywordsStr);
-        const userComment = new Uint8Array([0x01, 0x00, ...utf8Bytes]);
-        exif['Exif'][piexif.ExifIFD.UserComment] = String.fromCharCode(...userComment);
+        try {
+            const commentText = "Keywords: " + keywordsStr;
+            const utf8Bytes = new TextEncoder().encode(commentText);
+            
+            // Build UserComment binary string byte by byte to avoid spread operator issues
+            // Start with UTF-8 encoding identifier
+            let userCommentStr = '\x01\x00';
+            // Append UTF-8 bytes
+            for (let i = 0; i < utf8Bytes.length; i++) {
+                userCommentStr += String.fromCharCode(utf8Bytes[i]);
+            }
+            exif['Exif'][piexif.ExifIFD.UserComment] = userCommentStr;
+        } catch (e) {
+            console.error('UserComment encoding failed:', e);
+            // Fallback: store as regular string (will lose special chars but won't crash)
+            exif['Exif'][piexif.ExifIFD.UserComment] = "Keywords: " + keywordsStr;
+        }
         
-        // 2. Try DocumentName with UTF-8 bytes
+        // Also store in DocumentName (may show ?? but UserComment will have correct value)
         exif['0th'] = exif['0th'] || {};
-        try {
-            // Convert to UTF-8 bytes and then to binary string
-            const utf8Array = new TextEncoder().encode(keywordsStr);
-            // Convert Uint8Array to binary string
-            let binaryStr = '';
-            for (let i = 0; i < utf8Array.length; i++) {
-                binaryStr += String.fromCharCode(utf8Array[i]);
-            }
-            exif['0th'][piexif.ImageIFD.DocumentName] = binaryStr;
-        } catch (e) {
-            // Fallback to regular string
-            exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
-        }
-        
-        // 3. Try XPKeywords (Windows-specific UTF-16LE encoding)
-        try {
-            // Convert to UTF-16LE with BOM
-            const utf16Bytes = new Uint8Array(keywordsStr.length * 2 + 4);
-            utf16Bytes[0] = 0xFF; // BOM byte 1
-            utf16Bytes[1] = 0xFE; // BOM byte 2 (UTF-16LE)
-            for (let i = 0; i < keywordsStr.length; i++) {
-                const charCode = keywordsStr.charCodeAt(i);
-                utf16Bytes[i * 2 + 2] = charCode & 0xFF;
-                utf16Bytes[i * 2 + 3] = (charCode >> 8) & 0xFF;
-            }
-            utf16Bytes[keywordsStr.length * 2 + 2] = 0x00; // Null terminator
-            utf16Bytes[keywordsStr.length * 2 + 3] = 0x00;
-            exif['0th'][piexif.ImageIFD.XPKeywords] = String.fromCharCode(...utf16Bytes);
-        } catch (e) {
-            console.log('XPKeywords encoding failed:', e);
-        }
+        exif['0th'][piexif.ImageIFD.DocumentName] = keywordsStr;
     }
 
     // GPS Coordinates - only set if both lat and lon are provided
@@ -521,12 +501,8 @@ function writeExifData(imageData, newExif) {
                 exifObj['0th'][piexif.ImageIFD.DateTime] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DateTime]);
             }
             if (newExif['0th'][piexif.ImageIFD.DocumentName]) {
-                // DocumentName might already be encoded as binary string, preserve it
-                exifObj['0th'][piexif.ImageIFD.DocumentName] = newExif['0th'][piexif.ImageIFD.DocumentName];
-            }
-            if (newExif['0th'][piexif.ImageIFD.XPKeywords]) {
-                // XPKeywords is already encoded as UTF-16LE binary string
-                exifObj['0th'][piexif.ImageIFD.XPKeywords] = newExif['0th'][piexif.ImageIFD.XPKeywords];
+                // DocumentName - preserve as-is (may be regular string or binary)
+                exifObj['0th'][piexif.ImageIFD.DocumentName] = ensureUTF8String(newExif['0th'][piexif.ImageIFD.DocumentName]);
             }
         }
         
@@ -534,9 +510,19 @@ function writeExifData(imageData, newExif) {
             if (newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]) {
                 exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = String(newExif['Exif'][piexif.ExifIFD.DateTimeOriginal]);
             }
-            // UserComment for UTF-8 support (keywords, description)
+            // UserComment for UTF-8 support (keywords)
+            // UserComment should already be a properly formatted binary string
             if (newExif['Exif'][piexif.ExifIFD.UserComment]) {
-                exifObj['Exif'][piexif.ExifIFD.UserComment] = newExif['Exif'][piexif.ExifIFD.UserComment];
+                // Preserve as-is - it's already a binary string with UTF-8 encoding prefix
+                const userComment = newExif['Exif'][piexif.ExifIFD.UserComment];
+                // Ensure it's a string (not an array or other type)
+                if (typeof userComment === 'string') {
+                    exifObj['Exif'][piexif.ExifIFD.UserComment] = userComment;
+                } else {
+                    // If it's not a string, convert it
+                    console.warn('UserComment is not a string, converting...');
+                    exifObj['Exif'][piexif.ExifIFD.UserComment] = String(userComment);
+                }
             }
         }
         
