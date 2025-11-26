@@ -184,13 +184,11 @@ module.exports = async function handler(req, res) {
             }
         }
 
-        console.log('ExifTool tags to write (if ExifTool works):', JSON.stringify(exifToolTags, null, 2));
-
-        // For EXIF GPS, we need to use piexifjs (Sharp doesn't support all EXIF GPS fields well)
+        // For EXIF, we need to use piexifjs
         // Convert image to binary string for piexifjs
         const imageString = imageBuffer.toString('binary');
 
-        // Load existing EXIF or start fresh
+        // Load existing EXIF or start fresh (MUST BE DONE BEFORE writing to exifObj)
         let exifObj = {};
         try {
             exifObj = piexif.load(imageString);
@@ -199,6 +197,8 @@ module.exports = async function handler(req, res) {
             console.log('No existing EXIF, starting fresh');
             exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         }
+
+        console.log('ExifTool tags to write (if ExifTool works):', JSON.stringify(exifToolTags, null, 2));
 
         // Determine GPS coordinates (prefer new format, fallback to legacy)
         let lat, lon, alt;
