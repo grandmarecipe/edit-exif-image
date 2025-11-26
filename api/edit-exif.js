@@ -85,59 +85,79 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Only JPEG images are supported' });
         }
 
-        // Prepare XMP/IPTC metadata tags for ExifTool
-        // ExifTool properly handles UTF-8 encoding for XMP and IPTC
-        // Use correct tag names with dashes for XMP namespace prefixes
+        // Write text metadata to EXIF using piexifjs (this works reliably)
+        // Also prepare XMP/IPTC tags for ExifTool (if it works in the environment)
         const exifToolTags = {};
 
         // Handle new format (preferred)
         if (hasNewFormat) {
-            // Title -> XMP dc:title and IPTC ObjectName
+            // Title -> EXIF DocumentName (works with piexifjs) + XMP/IPTC (if ExifTool works)
             if (title) {
                 const titleStr = String(title);
+                // Write to EXIF DocumentName (this works!)
+                exifObj["0th"][piexif.ImageIFD.DocumentName] = titleStr;
+                // Also try XMP/IPTC with ExifTool
                 exifToolTags['XMP-dc:Title'] = titleStr;
                 exifToolTags['IPTC:ObjectName'] = titleStr;
                 console.log('Setting title:', titleStr);
             }
 
-            // Description -> XMP dc:description and IPTC Caption/Abstract
+            // Description -> EXIF ImageDescription (works with piexifjs) + XMP/IPTC (if ExifTool works)
             if (description) {
                 const descStr = String(description);
+                // Write to EXIF ImageDescription (this works!)
+                exifObj["0th"][piexif.ImageIFD.ImageDescription] = descStr;
+                // Also try XMP/IPTC with ExifTool
                 exifToolTags['XMP-dc:Description'] = descStr;
                 exifToolTags['IPTC:Caption-Abstract'] = descStr;
                 console.log('Setting description:', descStr);
             }
 
-            // Keywords -> XMP dc:subject and IPTC Keywords
+            // Keywords -> EXIF DocumentName (works with piexifjs) + XMP/IPTC (if ExifTool works)
+            let keywordsStr = '';
             if (keywords && Array.isArray(keywords) && keywords.length > 0) {
-                const keywordsArray = keywords.map(k => String(k).trim()).filter(k => k.length > 0);
-                exifToolTags['XMP-dc:Subject'] = keywordsArray;
-                exifToolTags['IPTC:Keywords'] = keywordsArray;
-                console.log('Setting keywords:', keywordsArray);
+                keywordsStr = keywords.map(k => String(k).trim()).filter(k => k.length > 0).join(', ');
+                exifToolTags['XMP-dc:Subject'] = keywords.map(k => String(k).trim()).filter(k => k.length > 0);
+                exifToolTags['IPTC:Keywords'] = keywords.map(k => String(k).trim()).filter(k => k.length > 0);
             } else if (keywords && typeof keywords === 'string') {
-                // Support comma-separated string
-                const keywordsArray = keywords.split(',').map(k => String(k).trim()).filter(k => k.length > 0);
+                keywordsStr = keywords.split(',').map(k => String(k).trim()).filter(k => k.length > 0).join(', ');
+                const keywordsArray = keywordsStr.split(',').map(k => k.trim()).filter(k => k.length > 0);
                 if (keywordsArray.length > 0) {
                     exifToolTags['XMP-dc:Subject'] = keywordsArray;
                     exifToolTags['IPTC:Keywords'] = keywordsArray;
-                    console.log('Setting keywords:', keywordsArray);
                 }
             }
-
-            // City -> XMP photoshop:City and IPTC City
-            if (city) {
-                const cityStr = String(city);
-                exifToolTags['XMP-photoshop:City'] = cityStr;
-                exifToolTags['IPTC:City'] = cityStr;
-                console.log('Setting city:', cityStr);
+            if (keywordsStr) {
+                // Write to EXIF DocumentName (append to title if exists, or use as DocumentName)
+                // For keywords, we'll use DocumentName field (this is what was working before)
+                if (!title) {
+                    exifObj["0th"][piexif.ImageIFD.DocumentName] = keywordsStr;
+                }
+                console.log('Setting keywords:', keywordsStr);
             }
 
-            // Country -> XMP photoshop:Country and IPTC Country/PrimaryLocationName
-            if (country) {
-                const countryStr = String(country);
-                exifToolTags['XMP-photoshop:Country'] = countryStr;
-                exifToolTags['IPTC:Country-PrimaryLocationName'] = countryStr;
-                console.log('Setting country:', countryStr);
+            // City and Country -> Try to store in EXIF UserComment (works with piexifjs)
+            // Also try XMP/IPTC with ExifTool
+            if (city || country) {
+                const locationStr = [city, country].filter(Boolean).join(', ');
+                if (locationStr) {
+                    // Store in UserComment with UTF-8 encoding
+                    const utf8Bytes = Buffer.from(`Location: ${locationStr}`, 'utf8');
+                    const userComment = Buffer.concat([
+                        Buffer.from([0x01, 0x00]), // UTF-8 encoding identifier
+                        utf8Bytes
+                    ]);
+                    exifObj["Exif"][piexif.ExifIFD.UserComment] = userComment.toString('binary');
+                    console.log('Setting location in UserComment:', locationStr);
+                }
+                if (city) {
+                    exifToolTags['XMP-photoshop:City'] = String(city);
+                    exifToolTags['IPTC:City'] = String(city);
+                }
+                if (country) {
+                    exifToolTags['XMP-photoshop:Country'] = String(country);
+                    exifToolTags['IPTC:Country-PrimaryLocationName'] = String(country);
+                }
             }
         }
 
@@ -145,23 +165,26 @@ module.exports = async function handler(req, res) {
         if (hasLegacyFormat) {
             if (exifData.description && !description) {
                 const descStr = String(exifData.description);
+                exifObj["0th"][piexif.ImageIFD.ImageDescription] = descStr;
                 exifToolTags['XMP-dc:Description'] = descStr;
                 exifToolTags['IPTC:Caption-Abstract'] = descStr;
                 console.log('Setting description (legacy):', descStr);
             }
             if (exifData.keywords && !keywords) {
                 const kw = typeof exifData.keywords === 'string' 
-                    ? exifData.keywords.split(',').map(k => k.trim()).filter(k => k.length > 0)
-                    : Array.isArray(exifData.keywords) ? exifData.keywords.map(k => String(k).trim()).filter(k => k.length > 0) : [];
-                if (kw.length > 0) {
-                    exifToolTags['XMP-dc:Subject'] = kw;
-                    exifToolTags['IPTC:Keywords'] = kw;
+                    ? exifData.keywords.split(',').map(k => k.trim()).filter(k => k.length > 0).join(', ')
+                    : Array.isArray(exifData.keywords) ? exifData.keywords.map(k => String(k).trim()).filter(k => k.length > 0).join(', ') : '';
+                if (kw) {
+                    exifObj["0th"][piexif.ImageIFD.DocumentName] = kw;
+                    const kwArray = kw.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                    exifToolTags['XMP-dc:Subject'] = kwArray;
+                    exifToolTags['IPTC:Keywords'] = kwArray;
                     console.log('Setting keywords (legacy):', kw);
                 }
             }
         }
 
-        console.log('ExifTool tags to write:', JSON.stringify(exifToolTags, null, 2));
+        console.log('ExifTool tags to write (if ExifTool works):', JSON.stringify(exifToolTags, null, 2));
 
         // For EXIF GPS, we need to use piexifjs (Sharp doesn't support all EXIF GPS fields well)
         // Convert image to binary string for piexifjs
@@ -216,10 +239,13 @@ module.exports = async function handler(req, res) {
         if (!exifObj['1st']) exifObj['1st'] = {};
         if (exifObj['thumbnail'] === undefined) exifObj['thumbnail'] = null;
 
-        // Apply EXIF GPS data using piexifjs
+        // Apply EXIF data (GPS + text fields) using piexifjs
+        // This includes: GPS coordinates, DocumentName, ImageDescription, UserComment
+        console.log('Writing EXIF data with piexifjs (GPS + text fields)');
         const exifString = piexif.dump(exifObj);
         const imageWithExif = piexif.insert(exifString, imageString);
         const imageBufferWithExif = Buffer.from(imageWithExif, 'binary');
+        console.log('EXIF data written, buffer size:', imageBufferWithExif.length, 'bytes');
 
         // Apply XMP/IPTC metadata using ExifTool
         // Try ExifTool first, but if it fails (e.g., in serverless), we'll have a fallback
