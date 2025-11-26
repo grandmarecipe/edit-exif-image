@@ -247,103 +247,79 @@ module.exports = async function handler(req, res) {
         const imageBufferWithExif = Buffer.from(imageWithExif, 'binary');
         console.log('EXIF data written, buffer size:', imageBufferWithExif.length, 'bytes');
 
-        // Apply XMP/IPTC metadata using ExifTool
-        // Try ExifTool first, but if it fails (e.g., in serverless), we'll have a fallback
+        // Apply XMP/IPTC metadata using ExifTool (optional - EXIF fields already written above)
+        // Try ExifTool for XMP/IPTC, but if it fails, we still return the image with EXIF data
         let finalImageBuffer = imageBufferWithExif;
         if (Object.keys(exifToolTags).length > 0) {
-            console.log('Starting ExifTool processing for XMP/IPTC metadata...');
+            console.log('Attempting ExifTool processing for XMP/IPTC metadata (optional)...');
             console.log('ExifTool tags to write:', JSON.stringify(exifToolTags, null, 2));
             
-            const fs = require('fs');
-            const path = require('path');
-            const os = require('os');
-            
-            // Create temp file with unique name
-            const tempInput = path.join(os.tmpdir(), `exif-input-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`);
-            
             try {
-                // Step 3: Write image with EXIF GPS to temp file
-                console.log('Writing image with EXIF GPS to temp file:', tempInput);
-                fs.writeFileSync(tempInput, imageBufferWithExif);
-                const fileSizeBefore = fs.statSync(tempInput).size;
-                console.log('Temp file size before ExifTool:', fileSizeBefore, 'bytes');
+                const fs = require('fs');
+                const path = require('path');
+                const os = require('os');
                 
-                // Step 4: Use ExifTool to write XMP/IPTC metadata
-                console.log('Creating ExifTool instance...');
-                const exiftool = new ExifTool();
-                console.log('ExifTool instance created');
+                // Create temp file with unique name
+                const tempInput = path.join(os.tmpdir(), `exif-input-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`);
                 
-                console.log('Calling ExifTool.write with tags:', Object.keys(exifToolTags));
-                // Write metadata with overwrite_original flag
-                const writeResult = await exiftool.write(tempInput, exifToolTags, ['-overwrite_original']);
-                console.log('ExifTool.write result:', writeResult);
-                console.log('ExifTool.write completed successfully');
-                
-                // Properly close ExifTool
-                await exiftool.end();
-                console.log('ExifTool instance closed');
-                
-                // Step 5: Read the modified image back
-                console.log('Reading modified image from temp file');
-                finalImageBuffer = fs.readFileSync(tempInput);
-                const fileSizeAfter = fs.statSync(tempInput).size;
-                console.log('Temp file size after ExifTool:', fileSizeAfter, 'bytes');
-                console.log('Final buffer size:', finalImageBuffer.length, 'bytes');
-                
-                // Verify we got the modified buffer, not the original
-                if (finalImageBuffer.length === imageBufferWithExif.length && 
-                    finalImageBuffer.equals(imageBufferWithExif)) {
-                    console.warn('WARNING: Final buffer appears identical to input buffer. ExifTool may not have written metadata.');
-                    console.warn('This might indicate ExifTool is not working in this environment (e.g., serverless)');
-                } else {
-                    console.log('SUCCESS: Final buffer differs from input, ExifTool modifications detected');
-                }
-                
-                // Verify metadata was written by reading it back
                 try {
-                    const exiftoolRead = new ExifTool();
-                    const readMetadata = await exiftoolRead.read(tempInput);
-                    await exiftoolRead.end();
-                    console.log('Verification - Metadata read back from file:');
-                    console.log('  XMP Title:', readMetadata['XMP:Title'] || readMetadata['Title'] || 'NOT FOUND');
-                    console.log('  XMP Description:', readMetadata['XMP:Description'] || readMetadata['Description'] || 'NOT FOUND');
-                    console.log('  XMP Subject:', readMetadata['XMP:Subject'] || readMetadata['Subject'] || 'NOT FOUND');
-                    console.log('  IPTC ObjectName:', readMetadata['IPTC:ObjectName'] || 'NOT FOUND');
-                    console.log('  IPTC Keywords:', readMetadata['IPTC:Keywords'] || 'NOT FOUND');
-                } catch (verifyError) {
-                    console.warn('Could not verify metadata (this is OK):', verifyError.message);
-                }
-                
-                // Clean up temp file
-                try {
-                    fs.unlinkSync(tempInput);
-                    console.log('Temp file cleaned up');
-                } catch (cleanupError) {
-                    console.warn('Failed to cleanup temp file:', cleanupError);
-                }
-            } catch (exifToolError) {
-                console.error('ExifTool error details:', {
-                    message: exifToolError.message,
-                    stack: exifToolError.stack,
-                    name: exifToolError.name,
-                    code: exifToolError.code
-                });
-                // Fallback: return image with EXIF GPS only
-                console.warn('Falling back to image with EXIF GPS only (no XMP/IPTC)');
-                console.warn('ExifTool may not be available in this environment (serverless/Lambda)');
-                finalImageBuffer = imageBufferWithExif;
-                
-                // Clean up temp file on error
-                try {
-                    if (fs.existsSync(tempInput)) {
+                    // Write image with EXIF GPS to temp file
+                    console.log('Writing image with EXIF GPS to temp file:', tempInput);
+                    fs.writeFileSync(tempInput, imageBufferWithExif);
+                    console.log('Temp file created, size:', fs.statSync(tempInput).size, 'bytes');
+                    
+                    // Use ExifTool to write XMP/IPTC metadata
+                    console.log('Creating ExifTool instance...');
+                    const exiftool = new ExifTool();
+                    console.log('ExifTool instance created');
+                    
+                    console.log('Calling ExifTool.write with tags:', Object.keys(exifToolTags));
+                    // Write metadata with overwrite_original flag
+                    await exiftool.write(tempInput, exifToolTags, ['-overwrite_original']);
+                    console.log('ExifTool.write completed successfully');
+                    
+                    // Properly close ExifTool
+                    await exiftool.end();
+                    console.log('ExifTool instance closed');
+                    
+                    // Read the modified image back
+                    console.log('Reading modified image from temp file');
+                    finalImageBuffer = fs.readFileSync(tempInput);
+                    console.log('Final buffer size:', finalImageBuffer.length, 'bytes');
+                    
+                    // Clean up temp file
+                    try {
                         fs.unlinkSync(tempInput);
+                        console.log('Temp file cleaned up');
+                    } catch (cleanupError) {
+                        console.warn('Failed to cleanup temp file:', cleanupError);
                     }
-                } catch (cleanupError) {
-                    console.warn('Failed to cleanup temp file after error:', cleanupError);
+                } catch (exifToolError) {
+                    console.error('ExifTool error (non-fatal, continuing with EXIF-only):', {
+                        message: exifToolError.message,
+                        name: exifToolError.name
+                    });
+                    // Fallback: use image with EXIF data only (this is fine!)
+                    console.log('Using image with EXIF data only (XMP/IPTC not available in this environment)');
+                    finalImageBuffer = imageBufferWithExif;
+                    
+                    // Clean up temp file on error
+                    try {
+                        if (fs.existsSync(tempInput)) {
+                            fs.unlinkSync(tempInput);
+                        }
+                    } catch (cleanupError) {
+                        // Ignore cleanup errors
+                    }
                 }
+            } catch (fsError) {
+                // File system operations failed (e.g., in serverless environment)
+                console.warn('File system operations failed (serverless environment?):', fsError.message);
+                console.log('Using image with EXIF data only (this is fine!)');
+                finalImageBuffer = imageBufferWithExif;
             }
         } else {
-            console.log('No XMP/IPTC tags to write, skipping ExifTool processing');
+            console.log('No XMP/IPTC tags to write, using EXIF data only');
         }
 
         // Return the modified image
@@ -353,9 +329,11 @@ module.exports = async function handler(req, res) {
 
     } catch (error) {
         console.error('Error processing image:', error);
+        console.error('Error stack:', error.stack);
         return res.status(500).json({ 
             error: 'Failed to process image', 
             message: error.message,
+            details: error.toString(),
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
