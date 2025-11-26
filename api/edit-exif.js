@@ -85,6 +85,20 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Only JPEG images are supported' });
         }
 
+        // For EXIF, we need to use piexifjs
+        // Convert image to binary string for piexifjs
+        const imageString = imageBuffer.toString('binary');
+
+        // Load existing EXIF or start fresh (MUST BE DONE FIRST before writing to exifObj)
+        let exifObj = {};
+        try {
+            exifObj = piexif.load(imageString);
+            console.log('Loaded existing EXIF data');
+        } catch (e) {
+            console.log('No existing EXIF, starting fresh');
+            exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
+        }
+
         // Write text metadata to EXIF using piexifjs (this works reliably)
         // Also prepare XMP/IPTC tags for ExifTool (if it works in the environment)
         const exifToolTags = {};
@@ -182,20 +196,6 @@ module.exports = async function handler(req, res) {
                     console.log('Setting keywords (legacy):', kw);
                 }
             }
-        }
-
-        // For EXIF, we need to use piexifjs
-        // Convert image to binary string for piexifjs
-        const imageString = imageBuffer.toString('binary');
-
-        // Load existing EXIF or start fresh (MUST BE DONE BEFORE writing to exifObj)
-        let exifObj = {};
-        try {
-            exifObj = piexif.load(imageString);
-            console.log('Loaded existing EXIF data');
-        } catch (e) {
-            console.log('No existing EXIF, starting fresh');
-            exifObj = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": null};
         }
 
         console.log('ExifTool tags to write (if ExifTool works):', JSON.stringify(exifToolTags, null, 2));
