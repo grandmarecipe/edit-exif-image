@@ -85,6 +85,40 @@
                 </div>
             </div>
 
+            <div class="form-section">
+                <h3>Logo Watermark (Optional)</h3>
+                <p class="info-text">Add your logo as a watermark to the image</p>
+                <div class="form-group">
+                    <label for="logoFile">Upload Logo:</label>
+                    <input type="file" id="logoFile" accept="image/*">
+                    <small>PNG with transparency recommended</small>
+                </div>
+                <div id="logoPreview" class="logo-preview hidden">
+                    <img id="logoPreviewImg" alt="Logo preview">
+                    <button type="button" id="removeLogoBtn" class="btn-small">Remove Logo</button>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="logoPosition">Position:</label>
+                        <select id="logoPosition">
+                            <option value="top-right">Top Right Corner</option>
+                            <option value="bottom-right">Bottom Right Corner</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="logoSize">Size (% of image width):</label>
+                        <input type="number" id="logoSize" min="5" max="50" value="15" step="1">
+                        <small>Recommended: 10-20%</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="addWatermark">
+                        Add watermark to image
+                    </label>
+                </div>
+            </div>
+
             <div class="button-group">
                 <button id="saveBtn" class="btn-primary">Save EXIF Data</button>
                 <button id="resetBtn" class="btn-secondary">Reset</button>

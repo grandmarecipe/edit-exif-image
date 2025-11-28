@@ -1,6 +1,7 @@
 let currentImageData = null;
 let originalExifData = null;
 let originalImageFormat = null;
+let logoData = null;
 
 // Show notification message
 function showNotification(message, type = 'info') {
@@ -337,24 +338,52 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
         }
 
         // Get the modified image as blob
-        const blob = await response.blob();
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const newImageData = e.target.result;
+        let blob = await response.blob();
+        let imageWithMetadata = await blobToDataURL(blob);
+        
+        // Check if watermark should be added
+        const addWatermark = document.getElementById('addWatermark').checked;
+        if (addWatermark && logoData) {
+            showNotification('Adding watermark...', 'info');
             
-            // Update preview
-            displayImage(newImageData);
-            currentImageData = newImageData;
+            const logoPosition = document.getElementById('logoPosition').value;
+            const logoSize = parseFloat(document.getElementById('logoSize').value) || 15;
             
-            // Re-read and display updated metadata
-            readExifData(newImageData);
+            // Call watermark API
+            const watermarkResponse = await fetch('/api/add-watermark', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    imageData: imageWithMetadata,
+                    logoData: logoData,
+                    position: logoPosition,
+                    size: logoSize
+                })
+            });
             
-            // Trigger download
-            downloadImage(newImageData);
+            if (!watermarkResponse.ok) {
+                const errorData = await watermarkResponse.json();
+                throw new Error(errorData.error || 'Failed to add watermark');
+            }
             
-            showNotification('Metadata saved successfully! Image download started.', 'success');
-        };
-        reader.readAsDataURL(blob);
+            blob = await watermarkResponse.blob();
+            imageWithMetadata = await blobToDataURL(blob);
+            showNotification('Watermark added successfully!', 'success');
+        }
+        
+        // Update preview
+        displayImage(imageWithMetadata);
+        currentImageData = imageWithMetadata;
+        
+        // Re-read and display updated metadata
+        readExifData(imageWithMetadata);
+        
+        // Trigger download
+        downloadImage(imageWithMetadata);
+        
+        showNotification('Metadata saved successfully! Image download started.', 'success');
         
     } catch (error) {
         console.error('Error saving metadata:', error);
@@ -601,8 +630,48 @@ function downloadImage(imageData, filename = 'edited-image.jpg') {
     document.body.removeChild(link);
 }
 
-// Reset form
+// Logo upload handler
+document.getElementById('logoFile').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            logoData = e.target.result;
+            const logoPreview = document.getElementById('logoPreview');
+            const logoPreviewImg = document.getElementById('logoPreviewImg');
+            logoPreviewImg.src = logoData;
+            logoPreview.classList.remove('hidden');
+            showNotification('Logo loaded successfully', 'success');
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+// Remove logo handler
+document.getElementById('removeLogoBtn').addEventListener('click', () => {
+    logoData = null;
+    document.getElementById('logoFile').value = '';
+    document.getElementById('logoPreview').classList.add('hidden');
+    document.getElementById('addWatermark').checked = false;
+    showNotification('Logo removed', 'info');
+});
+
+// Helper function to convert blob to data URL
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+// Reset form (including logo)
 document.getElementById('resetBtn').addEventListener('click', () => {
+    logoData = null;
+    document.getElementById('logoFile').value = '';
+    document.getElementById('logoPreview').classList.add('hidden');
+    document.getElementById('addWatermark').checked = false;
     if (originalExifData) {
         populateForm(originalExifData);
     } else {
