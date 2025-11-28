@@ -348,6 +348,8 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
             
             const logoPosition = document.getElementById('logoPosition').value;
             const logoSize = parseFloat(document.getElementById('logoSize').value) || 15;
+            const logoOffsetX = parseInt(document.getElementById('logoOffsetX').value) || 0;
+            const logoOffsetY = parseInt(document.getElementById('logoOffsetY').value) || 0;
             
             // Call watermark API
             const watermarkResponse = await fetch('/api/add-watermark', {
@@ -359,7 +361,9 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
                     imageData: imageWithMetadata,
                     logoData: logoData,
                     position: logoPosition,
-                    size: logoSize
+                    size: logoSize,
+                    offsetX: logoOffsetX,
+                    offsetY: logoOffsetY
                 })
             });
             

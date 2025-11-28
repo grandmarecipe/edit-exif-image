@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { imageData, logoData, position = 'top-right', size = 15 } = req.body;
+        const { imageData, logoData, position = 'top-right', size = 15, offsetX = 0, offsetY = 0 } = req.body;
 
         if (!imageData) {
             return res.status(400).json({ error: 'imageData (base64) is required' });
@@ -27,6 +27,10 @@ module.exports = async function handler(req, res) {
 
         // Parse size (should be percentage of image width, 5-50%)
         const sizePercent = Math.max(5, Math.min(50, parseFloat(size) || 15));
+        
+        // Parse offsets (pixels)
+        const offsetXPixels = parseInt(offsetX) || 0;
+        const offsetYPixels = parseInt(offsetY) || 0;
 
         // Decode base64 images
         const imageBase64 = imageData.split(',')[1] || imageData;
@@ -40,13 +44,21 @@ module.exports = async function handler(req, res) {
         const imageWidth = imageMetadata.width;
         const imageHeight = imageMetadata.height;
 
+        // Get original logo dimensions to calculate aspect ratio
+        const originalLogoMetadata = await sharp(logoBuffer).metadata();
+        const originalLogoWidth = originalLogoMetadata.width;
+        const originalLogoHeight = originalLogoMetadata.height;
+        const logoAspectRatio = originalLogoWidth / originalLogoHeight;
+
         // Calculate logo size based on percentage of image width
+        // This will scale both width and height proportionally
         const logoWidth = Math.round(imageWidth * (sizePercent / 100));
+        const logoHeight = Math.round(logoWidth / logoAspectRatio);
         
-        // Resize logo while maintaining aspect ratio
+        // Resize logo to exact dimensions (maintaining aspect ratio)
         const resizedLogo = await sharp(logoBuffer)
-            .resize(logoWidth, null, {
-                fit: 'inside',
+            .resize(logoWidth, logoHeight, {
+                fit: 'contain',
                 withoutEnlargement: true
             })
             .toBuffer();
@@ -55,7 +67,7 @@ module.exports = async function handler(req, res) {
         const finalLogoWidth = logoMetadata.width;
         const finalLogoHeight = logoMetadata.height;
 
-        // Calculate position
+        // Calculate base position with padding
         const padding = Math.round(imageWidth * 0.02); // 2% padding from edges
         let left, top;
 
@@ -76,6 +88,14 @@ module.exports = async function handler(req, res) {
             left = imageWidth - finalLogoWidth - padding;
             top = padding;
         }
+
+        // Apply pixel offsets
+        left += offsetXPixels;
+        top += offsetYPixels;
+
+        // Ensure logo stays within image bounds
+        left = Math.max(0, Math.min(left, imageWidth - finalLogoWidth));
+        top = Math.max(0, Math.min(top, imageHeight - finalLogoHeight));
 
         // Composite logo onto image
         const finalImage = await sharp(imageBuffer)
