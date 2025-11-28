@@ -55,12 +55,15 @@ module.exports = async function handler(req, res) {
         const logoWidth = Math.round(imageWidth * (sizePercent / 100));
         const logoHeight = Math.round(logoWidth / logoAspectRatio);
         
-        // Resize logo to exact dimensions (maintaining aspect ratio)
+        // Resize logo while preserving PNG transparency
+        // Ensure we maintain the alpha channel and scale the entire image properly
         const resizedLogo = await sharp(logoBuffer)
+            .ensureAlpha() // Ensure alpha channel exists for transparency
             .resize(logoWidth, logoHeight, {
-                fit: 'contain',
-                withoutEnlargement: true
+                fit: 'contain', // Maintain aspect ratio, fit within dimensions
+                background: { r: 0, g: 0, b: 0, alpha: 0 } // Transparent background
             })
+            .png() // Keep as PNG to preserve transparency
             .toBuffer();
 
         const logoMetadata = await sharp(resizedLogo).metadata();
@@ -97,13 +100,15 @@ module.exports = async function handler(req, res) {
         left = Math.max(0, Math.min(left, imageWidth - finalLogoWidth));
         top = Math.max(0, Math.min(top, imageHeight - finalLogoHeight));
 
-        // Composite logo onto image
+        // Composite logo onto image with proper transparency handling
+        // Use 'over' blend mode to respect alpha channel (transparency)
         const finalImage = await sharp(imageBuffer)
             .composite([
                 {
                     input: resizedLogo,
                     left: left,
-                    top: top
+                    top: top,
+                    blend: 'over' // Preserves transparency from PNG
                 }
             ])
             .jpeg({ quality: 95 })
