@@ -62,8 +62,14 @@ module.exports = async function handler(req, res) {
         if (position === 'top-right') {
             left = imageWidth - finalLogoWidth - padding;
             top = padding;
+        } else if (position === 'top-left') {
+            left = padding;
+            top = padding;
         } else if (position === 'bottom-right') {
             left = imageWidth - finalLogoWidth - padding;
+            top = imageHeight - finalLogoHeight - padding;
+        } else if (position === 'bottom-left') {
+            left = padding;
             top = imageHeight - finalLogoHeight - padding;
         } else {
             // Default to top-right
