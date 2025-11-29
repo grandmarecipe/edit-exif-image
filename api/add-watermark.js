@@ -17,14 +17,22 @@ module.exports = async function handler(req, res) {
     try {
         const { imageData, imageUrl, logoData, logoUrl, position = 'top-right', size = 15, offsetX = 0, offsetY = 0 } = req.body;
 
-        // Validate image input (either imageData or imageUrl required)
-        if (!imageData && !imageUrl) {
-            return res.status(400).json({ error: 'Either imageData (base64) or imageUrl is required' });
+        // Helper function to check if a string is a URL
+        function isUrl(str) {
+            if (typeof str !== 'string') return false;
+            return str.startsWith('http://') || str.startsWith('https://');
         }
 
-        // Validate logo input (either logoData or logoUrl required)
-        if (!logoData && !logoUrl) {
-            return res.status(400).json({ error: 'Either logoData (base64) or logoUrl is required' });
+        // Determine image source (prioritize imageUrl, then check if imageData is a URL)
+        const imageSource = imageUrl || imageData;
+        if (!imageSource) {
+            return res.status(400).json({ error: 'Either imageData (base64/URL) or imageUrl is required' });
+        }
+
+        // Determine logo source (prioritize logoUrl, then check if logoData is a URL)
+        const logoSource = logoUrl || logoData;
+        if (!logoSource) {
+            return res.status(400).json({ error: 'Either logoData (base64/URL) or logoUrl is required' });
         }
 
         // Parse size (should be percentage of image width, 5-50%)
@@ -36,32 +44,70 @@ module.exports = async function handler(req, res) {
 
         // Fetch or decode image
         let imageBuffer;
-        if (imageUrl) {
-            console.log('Fetching image from URL:', imageUrl);
-            const imageResponse = await fetch(imageUrl);
-            if (!imageResponse.ok) {
-                return res.status(400).json({ error: `Failed to fetch image: ${imageResponse.statusText}` });
+        const imageIsUrl = imageUrl || (imageData && isUrl(imageData));
+        
+        if (imageIsUrl) {
+            const imageUrlToFetch = imageUrl || imageData;
+            console.log('Fetching image from URL:', imageUrlToFetch.substring(0, 100) + '...');
+            try {
+                const imageResponse = await fetch(imageUrlToFetch);
+                if (!imageResponse.ok) {
+                    return res.status(400).json({ 
+                        error: `Failed to fetch image: ${imageResponse.statusText}`,
+                        status: imageResponse.status
+                    });
+                }
+                imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+            } catch (fetchError) {
+                console.error('Error fetching image:', fetchError);
+                return res.status(400).json({ 
+                    error: `Failed to fetch image from URL: ${fetchError.message}` 
+                });
             }
-            imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
         } else {
             // Decode base64 image
-            const imageBase64 = imageData.split(',')[1] || imageData;
-            imageBuffer = Buffer.from(imageBase64, 'base64');
+            try {
+                const imageBase64 = imageData.split(',')[1] || imageData;
+                imageBuffer = Buffer.from(imageBase64, 'base64');
+            } catch (decodeError) {
+                return res.status(400).json({ 
+                    error: `Failed to decode image data: ${decodeError.message}` 
+                });
+            }
         }
 
         // Fetch or decode logo
         let logoBuffer;
-        if (logoUrl) {
-            console.log('Fetching logo from URL:', logoUrl);
-            const logoResponse = await fetch(logoUrl);
-            if (!logoResponse.ok) {
-                return res.status(400).json({ error: `Failed to fetch logo: ${logoResponse.statusText}` });
+        const logoIsUrl = logoUrl || (logoData && isUrl(logoData));
+        
+        if (logoIsUrl) {
+            const logoUrlToFetch = logoUrl || logoData;
+            console.log('Fetching logo from URL:', logoUrlToFetch.substring(0, 100) + '...');
+            try {
+                const logoResponse = await fetch(logoUrlToFetch);
+                if (!logoResponse.ok) {
+                    return res.status(400).json({ 
+                        error: `Failed to fetch logo: ${logoResponse.statusText}`,
+                        status: logoResponse.status
+                    });
+                }
+                logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
+            } catch (fetchError) {
+                console.error('Error fetching logo:', fetchError);
+                return res.status(400).json({ 
+                    error: `Failed to fetch logo from URL: ${fetchError.message}` 
+                });
             }
-            logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
         } else {
             // Decode base64 logo
-            const logoBase64 = logoData.split(',')[1] || logoData;
-            logoBuffer = Buffer.from(logoBase64, 'base64');
+            try {
+                const logoBase64 = logoData.split(',')[1] || logoData;
+                logoBuffer = Buffer.from(logoBase64, 'base64');
+            } catch (decodeError) {
+                return res.status(400).json({ 
+                    error: `Failed to decode logo data: ${decodeError.message}` 
+                });
+            }
         }
 
         // Get image dimensions
