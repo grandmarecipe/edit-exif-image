@@ -15,14 +15,16 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { imageData, logoData, position = 'top-right', size = 15, offsetX = 0, offsetY = 0 } = req.body;
+        const { imageData, imageUrl, logoData, logoUrl, position = 'top-right', size = 15, offsetX = 0, offsetY = 0 } = req.body;
 
-        if (!imageData) {
-            return res.status(400).json({ error: 'imageData (base64) is required' });
+        // Validate image input (either imageData or imageUrl required)
+        if (!imageData && !imageUrl) {
+            return res.status(400).json({ error: 'Either imageData (base64) or imageUrl is required' });
         }
 
-        if (!logoData) {
-            return res.status(400).json({ error: 'logoData (base64) is required' });
+        // Validate logo input (either logoData or logoUrl required)
+        if (!logoData && !logoUrl) {
+            return res.status(400).json({ error: 'Either logoData (base64) or logoUrl is required' });
         }
 
         // Parse size (should be percentage of image width, 5-50%)
@@ -32,12 +34,35 @@ module.exports = async function handler(req, res) {
         const offsetXPixels = parseInt(offsetX) || 0;
         const offsetYPixels = parseInt(offsetY) || 0;
 
-        // Decode base64 images
-        const imageBase64 = imageData.split(',')[1] || imageData;
-        const logoBase64 = logoData.split(',')[1] || logoData;
-        
-        const imageBuffer = Buffer.from(imageBase64, 'base64');
-        const logoBuffer = Buffer.from(logoBase64, 'base64');
+        // Fetch or decode image
+        let imageBuffer;
+        if (imageUrl) {
+            console.log('Fetching image from URL:', imageUrl);
+            const imageResponse = await fetch(imageUrl);
+            if (!imageResponse.ok) {
+                return res.status(400).json({ error: `Failed to fetch image: ${imageResponse.statusText}` });
+            }
+            imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        } else {
+            // Decode base64 image
+            const imageBase64 = imageData.split(',')[1] || imageData;
+            imageBuffer = Buffer.from(imageBase64, 'base64');
+        }
+
+        // Fetch or decode logo
+        let logoBuffer;
+        if (logoUrl) {
+            console.log('Fetching logo from URL:', logoUrl);
+            const logoResponse = await fetch(logoUrl);
+            if (!logoResponse.ok) {
+                return res.status(400).json({ error: `Failed to fetch logo: ${logoResponse.statusText}` });
+            }
+            logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
+        } else {
+            // Decode base64 logo
+            const logoBase64 = logoData.split(',')[1] || logoData;
+            logoBuffer = Buffer.from(logoBase64, 'base64');
+        }
 
         // Get image dimensions
         const imageMetadata = await sharp(imageBuffer).metadata();
